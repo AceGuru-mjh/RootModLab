@@ -4,7 +4,7 @@
 > 针对 **Momo / Ruru / 春秋 (SpringRoot) / RootBeer** 等检测工具做全维度对抗，
 > 内置 **WebUI 配置面板** 与 **终端菜单**，可迭代、可编译、合规开源。
 >
-> **开发者：MJH** · 当前版本 **v1.3**
+> **开发者：MJH** · 当前版本 **v1.4**
 
 ---
 
@@ -68,8 +68,13 @@ HideAllRoot/
 | 挂载点异常（Momo 重点） | 过滤 `/proc/mounts`、`/proc/self/mountinfo` 中 magisk/ksu/apatch/zygisk 挂载行 | `main.cpp` |
 | 守护进程 socket | 过滤 `/proc/net/unix` 中 `magiskd`/`zygiskd`/`ksud`/`apd` 等 socket | `main.cpp` |
 | 注入框架内存特征 | 过滤 `/proc/self/maps` 中 `frida`/`xhook`/`memfd:`/`zygisk_module_entry` 等行（含 Ruru 的 /memfd:jit-cache 扫描） | `main.cpp` |
-| 注入库路径（`dladdr`） | Hook `dladdr` 抹除 `magisk`/`zygisk`/`frida`/`lsplant`/`xhook` 等库路径特征（Momo/Ruru 用 dladdr 探测注入） | `main.cpp` |
+| 注入库路径（`dladdr`） | Hook `dladdr` 命中注入库时返回 0（伪装“无法解析”，而非返回空文件名暴露 hook） | `main.cpp` |
 | fd 符号链接 | 隐藏 `/proc/self/fd` 中指向 magisk/zygisk 的链接（伪装为失效） | `main.cpp` |
+| 内核模块列表 | 过滤 `/proc/modules` 中 `magisk`/`zygisk`/`ksu`/`apatch`/`kernelsu` 等行 | `main.cpp` |
+| SELinux 上下文泄露 | 过滤 `/proc/<pid>/attr/current`，将含 `magisk`/`zygisk`/`su:`/`ksu` 的上下文伪装为 `u:r:untrusted_app:s0` | `main.cpp` |
+| 新版文件/状态接口 | Hook `openat2` / `statx`，阻断对隐藏路径的打开与 stat | `main.cpp` |
+| 目录枚举 | Hook `readdir`/`readdir64`，跳过 `magisk`/`zygisk`/`lspd`/模块目录等条目 | `main.cpp` |
+| 文件游标同步 | Hook `lseek`/`lseek64` 同步缓冲读游标，避免 `read()`+`lseek`+`read()` 内容错位 | `main.cpp` |
 | build.prop 直读 | 过滤 `/system/build.prop` 等中 `test-keys`/`userdebug`/`orange` 行（与属性 Hook 互补） | `main.cpp` |
 | 扩充的 Root 框架 / 应用 | 隐藏包名与路径覆盖 Magisk 全分支（Kitsune）、KernelSU、APatch、LSPosed、Riru、TaiChi、EdXposed、SuperSU、Shamiko、Hide-My-Applist、BusyBox 等 | `main.cpp` |
 | DenyList 兜底 | 安装时把检测工具加入 Magisk DenyList（不强制，由模块接管） | `customize.sh` |
@@ -153,7 +158,7 @@ bash build.sh
 > built to defeat the **Momo / Ruru / SpringRoot (春秋) / RootBeer** detection tools across every dimension.
 > Ships with a **WebUI config panel** and a **terminal menu**. Iterative, compilable, and open-source.
 >
-> **Developer: MJH** · **v1.3**
+> **Developer: MJH** · **v1.4**
 
 ## Architecture
 
@@ -187,6 +192,11 @@ bash build.sh
 | Injection memory | Filter `frida`/`xhook`/`memfd:`/`zygisk_module_entry` lines from `/proc/self/maps` (incl. Ruru's /memfd:jit-cache scan) | `main.cpp` |
 | Injection lib paths (`dladdr`) | Hook `dladdr` to strip `magisk`/`zygisk`/`frida`/`lsplant`/`xhook` library paths (Momo/Ruru probe via dladdr) | `main.cpp` |
 | fd symlinks | Hide `/proc/self/fd` symlinks pointing at magisk/zygisk (pretend broken) | `main.cpp` |
+| Kernel module list | Filter `magisk`/`zygisk`/`ksu`/`apatch`/`kernelsu` lines from `/proc/modules` | `main.cpp` |
+| SELinux context leak | Filter `/proc/<pid>/attr/current`, rewrite contexts containing `magisk`/`zygisk`/`su:`/`ksu` to `u:r:untrusted_app:s0` | `main.cpp` |
+| New file/stat APIs | Hook `openat2` / `statx` to block opening/stat'ing hidden paths | `main.cpp` |
+| Directory enumeration | Hook `readdir`/`readdir64` to skip `magisk`/`zygisk`/`lspd`/module-dir entries | `main.cpp` |
+| File cursor sync | Hook `lseek`/`lseek64` to keep the buffered read cursor in sync (no desync on read()+lseek+read()) | `main.cpp` |
 | build.prop direct read | Filter `test-keys`/`userdebug`/`orange` lines from `/system/build.prop` etc. (complements property hook) | `main.cpp` |
 | Expanded frameworks/apps | Hide packages & paths for Magisk (all forks), KernelSU, APatch, LSPosed, Riru, TaiChi, EdXposed, SuperSU, Shamiko, Hide-My-Applist, BusyBox… | `main.cpp` |
 | DenyList fallback | Add detectors to Magisk DenyList at install (optional, module takes over) | `customize.sh` |

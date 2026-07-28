@@ -124,8 +124,10 @@ function buildConf() {
 async function save(reboot) {
     try {
         const conf = buildConf();
-        // 白名单写入，避免注入
-        await runShell(`cat > ${CONFIG} <<'HAR_EOF'\n${conf}HAR_EOF`);
+        // 审查报告 4.5：改为 base64 写入，彻底杜绝 heredoc 注入。
+        // 内容仅含 base64 安全字符（A-Za-z0-9+/=），由设备端 base64 -d 还原。
+        const b64 = btoa(unescape(encodeURIComponent(conf)));
+        await runShell(`printf '%s' '${b64}' | base64 -d > ${CONFIG}`);
         await runShell(`chmod 0644 ${CONFIG}`);
         log('配置已保存（新启动的应用立即生效）');
         if (reboot) {

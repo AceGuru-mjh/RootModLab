@@ -13,5 +13,6 @@
 # 允许模块读取自身配置与 zygisk 目录
 allow { zygisk magisk } { file dir } { read open getattr search };
 
-# 允许 post-fs-data 阶段绑定挂载 /dev/null 屏蔽日志
-allow init { file } { mount };
+# 收窄（审查报告 4.2）：仅放开 post-fs-data 将 /dev/null 绑定到日志所需的
+# 最小挂载权限，不再对全部 file 开放 mount。如需更严格可改为具体类型。
+allow init tmpfs:filesystem mount;

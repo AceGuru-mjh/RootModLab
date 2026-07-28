@@ -7,8 +7,8 @@
  * /data/adb/hideallroot/config.conf so the operator can tune it from the
  * WebUI without recompiling.
  *
- * Hook categories (v1.2, comprehensive):
- *   1. File/access/stat   — hide su / magisk / ksu / apatch / lspd / busybox paths
+ * Hook categories (v1.4, comprehensive):
+ *   1. File/access/stat/openat2/statx — hide su / magisk / ksu / apatch / lspd
  *   2. Property           — hide ro.magisk.* / ro.ksu.* / ro.apatch.* / ro.riru.* /
  *                           ro.lsposed.* and sanitize bootloader-unlock props
  *   3. Process enumeration— hide magiskd/zygiskd/lspd/ksud/apd from /proc
@@ -18,6 +18,10 @@
  *   7. Mount points       — strip magisk/ksu/apatch/zygisk overlay mount lines
  *   8. Daemon sockets     — strip magiskd/zygiskd sockets from /proc/net/unix
  *   9. Anti-debug         — zero TracerPid in /proc/self/status + block self ptrace
+ *  10. readdir/readdir64  — skip framework module dir entries when enumerating
+ *  11. lseek/lseek64      — keep the buffered read cursor in sync with seeks
+ *  12. /proc/modules       — strip magisk/zygisk/ksu/apatch/kernelsu kernel modules
+ *  13. /proc/<pid>/attr/current — sanitize leaked root SELinux contexts
  *
  * Compatible: Magisk 25.0+ (native Zygisk). KernelSU / APatch require the
  * ZygiskNext companion module for this .so to load.
@@ -66,8 +70,8 @@ struct Config {
     bool proc_hide    = true;
     bool antidebug    = true;
     bool pi_fix       = true;
-    bool mount_hide   = true;       // NEW v1.2: hide overlay/magisk mount lines
-    bool dladdr_hide  = true;       // NEW v1.3: strip injection-lib paths from dladdr
+    bool mount_hide   = true;       // hide overlay/magisk mount lines
+    bool dladdr_hide  = true;       // strip injection-lib paths from dladdr
     int  target_mode  = 0;          // 0=all 1=detect 2=custom
     std::vector<std::string> detect_pkgs;
     std::vector<std::string> custom_pkgs;
@@ -189,6 +193,10 @@ static void load_config() {
 /* Block lists                                                         */
 /* ------------------------------------------------------------------ */
 
+/* Root-framework file paths. Matched as *whole path components* (see
+ * component_match) so a benign path like /data/app/com.magiskgame or
+ * a game named ksudoku is never blocked — the review flagged the old
+ * strstr() substring match for exactly these false positives. */
 static const char *kFilePathBlocks[] = {
     // su / superuser
     "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su", "/dev/su",
@@ -225,10 +233,31 @@ static const char *kFilePathBlocks[] = {
     nullptr,
 };
 
+/* Treat `frag` as a whole path component inside `path`:
+ *   - the character before the match must be '/' or start-of-string
+ *   - the character after must be '/' or '.' (suffix) or end-of-string
+ * This mirrors how real filesystem paths are structured and avoids the
+ * substring false positives the plain strstr() approach suffered from. */
+static bool component_match(const char *path, const char *frag) {
+    if (!path || !frag) return false;
+    size_t flen = strlen(frag);
+    if (flen == 0) return false;
+    const char *p = path;
+    while ((p = strstr(p, frag)) != nullptr) {
+        bool ok_before = (p == path) || (p[-1] == '/');
+        if (!ok_before) { p += flen; continue; }
+        const char *after = p + flen;
+        bool ok_after = (*after == '\0') || (*after == '/') || (*after == '.');
+        if (ok_after) return true;
+        p += flen;
+    }
+    return false;
+}
+
 static bool path_blocked(const char *path) {
     if (!path) return false;
     for (auto p = kFilePathBlocks; *p; ++p)
-        if (strstr(path, *p)) return true;
+        if (component_match(path, *p)) return true;
     return false;
 }
 
@@ -300,19 +329,41 @@ static const char *kProcNameBlocks[] = {
 static bool proc_name_blocked(const char *comm) {
     if (!comm) return false;
     for (auto p = kProcNameBlocks; *p; ++p)
-        if (strstr(comm, *p)) return true;
+        // comm is a 15-char process-name; match as whole name or prefix
+        if (!strcmp(comm, *p) || !strncmp(comm, *p, strlen(*p))) return true;
     return false;
 }
 
-static const char *kCmdBlocks[] = {
-    "magisk", "zygisk", "supersu", "daemonsu", "ksu", "apatch",
-    "/su", "kernelsu", nullptr,
+/* Dangerous command basenames we must never let through popen/execve.
+ * Matched as a whole token so benign commands like `ksudoku` are safe. */
+static const char *kCmdBasenames[] = {
+    "su", "magisk", "zygisk", "supersu", "daemonsu", "ksu", "apatch",
+    "kernelsu", "ksud", "apd", "magiskinit", nullptr,
 };
+
+static const char *basename_of(const char *s) {
+    if (!s) return nullptr;
+    const char *slash = strrchr(s, '/');
+    return slash ? slash + 1 : s;
+}
 
 static bool cmd_blocked(const char *s) {
     if (!s) return false;
-    for (auto p = kCmdBlocks; *p; ++p)
-        if (strstr(s, *p)) return true;
+    // tokenise by whitespace and inspect every token's basename
+    const char *p = s;
+    while (*p) {
+        while (*p && std::isspace((unsigned char)*p)) p++;
+        if (!*p) break;
+        const char *tok = p;
+        while (*p && !std::isspace((unsigned char)*p)) p++;
+        std::string token(tok, p - tok);
+        const char *bn = basename_of(token.c_str());
+        for (auto b = kCmdBasenames; *b; ++b) {
+            if (!strcmp(bn, *b)) return true;
+            // also catch component-style hits (e.g. /system/bin/magisk)
+            if (component_match(token.c_str(), *b)) return true;
+        }
+    }
     return false;
 }
 
@@ -329,11 +380,18 @@ static int       (*orig_access)  (const char *, int)                            
 static int       (*orig_faccessat)(int, const char *, int, int)                   = nullptr;
 static int       (*orig_stat)    (const char *, struct stat *)                    = nullptr;
 static int       (*orig_lstat)   (const char *, struct stat *)                    = nullptr;
+static int       (*orig_fstatat) (int, const char *, struct stat *, int)          = nullptr;
 static FILE     *(*orig_fopen)   (const char *, const char *)                     = nullptr;
 static DIR      *(*orig_opendir) (const char *)                                   = nullptr;
+static struct dirent *(*orig_readdir)   (DIR *)                                   = nullptr;
+static struct dirent64 *(*orig_readdir64)(DIR *)                                  = nullptr;
 static int       (*orig_readlink)(const char *, char *, size_t)                   = nullptr;
 static char     *(*orig_realpath)(const char *, char *)                          = nullptr;
 static int       (*orig_dladdr) (void *, Dl_info *)                              = nullptr;
+static int       (*orig_openat2)(int, const char *, const void *, size_t)         = nullptr;
+static int       (*orig_statx)(int, const char *, int, unsigned int, void *)      = nullptr;
+static off_t     (*orig_lseek)  (int, off_t, int)                                = nullptr;
+static off64_t   (*orig_lseek64)(int, off64_t, int)                              = nullptr;
 static int       (*orig_sysprop_get)(const char *, char *)                        = nullptr;
 static FILE     *(*orig_popen)   (const char *, const char *)                     = nullptr;
 static int       (*orig_system) (const char *)                                    = nullptr;
@@ -347,11 +405,13 @@ static int       (*orig_close)   (int)                                          
 /* Buffered content filter (for /proc maps, status, mounts, packages) */
 /* ------------------------------------------------------------------ */
 
+enum class BufMode { LINES, STATUS, ATTR };
+
 struct BufFilter {
     std::string data;
     size_t      off = 0;
     std::vector<std::string> block;
-    bool        status_mode = false;   // true => rewrite TracerPid instead of drop lines
+    BufMode     mode = BufMode::LINES;
 };
 
 static std::unordered_map<int, BufFilter> g_buffds;
@@ -393,6 +453,19 @@ static bool is_mounts_path(const char *path) {
     return !strcmp(p, "/mountinfo") || !strcmp(p, "/mounts");
 }
 
+static bool is_modules_path(const char *path) {
+    return path && !strcmp(path, "/proc/modules");
+}
+
+static bool is_attr_path(const char *path) {
+    if (!path) return false;
+    if (strncmp(path, "/proc/", 6) != 0) return false;
+    const char *rest = path + 6;
+    if (!isdigit((unsigned char)rest[0])) return false;
+    const char *p = rest; while (isdigit((unsigned char)*p)) p++;
+    return !strcmp(p, "/attr/current");
+}
+
 static bool is_netunix_path(const char *path) {
     return !strcmp(path, "/proc/net/unix") ||
            !strcmp(path, "/proc/net/tcp")  ||
@@ -423,15 +496,16 @@ static bool is_fdlink_path(const char *path) {
     return !strncmp(p, "/fd/", 4);
 }
 
-/* 注入框架 / 隐藏模块相关的库路径特征（用于 dladdr / fd / 通用匹配）。 */
+/* 注入框架 / 隐藏模块相关的库路径特征（用于 dladdr / fd / 通用匹配）。
+ * 注意：已剔除会误伤合法库的子串（gum→libgumbo、whale/libwhale→腾讯
+ * Whale UI 引擎、doom→游戏引擎），仅保留真正的 Hook / 注入框架特征。 */
 static bool injlib_blocked(const char *name) {
     if (!name) return false;
     static const char *sub[] = {
         "magisk", "zygisk", "frida", "lsplant", "xhook", "sandhook",
-        "whale", "substrate", "inlinehook", "libwhale", "gum",
-        "libnativebridge", "ksu", "apatch", "lspd", "riru",
-        "libfrida", "frida-agent", "frida-gadget", "libDexHelper",
-        "libepic", "dexmaker", "qbdi", "doom", "kernelsu", nullptr,
+        "substrate", "libfrida", "frida-agent", "frida-gadget", "libDexHelper",
+        "linjector", "libepic", "dexmaker", "qbdi", "kernelsu",
+        "ksu", "apatch", "lspd", "riru", nullptr,
     };
     for (auto p = sub; *p; ++p)
         if (strstr(name, *p)) return true;
@@ -444,13 +518,17 @@ static std::vector<std::string> maps_blocklist() {
         "libzygisk", "zygisk", "Zygisk", "magisk", ".magisk",
         "/dev/zygisk", "/dev/magisk", "/data/adb/modules/hideallroot",
         // 注入框架 / 内存特征
-        "frida", "libfrida", "frida-agent", "frida-gadget", "gum",
+        "frida", "libfrida", "frida-agent", "frida-gadget",
         "linjector", "xhook", "libDexHelper", "memfd:", "zygisk_module_entry",
-        "lsplant", "sandhook", "libwhale", "whale", "substrate",
-        "inlinehook", "libnativebridge", "libepic", "dexmaker", "qbdi", "doom",
+        "lsplant", "sandhook", "substrate", "libepic", "dexmaker", "qbdi",
         // 其它框架
         "lspd", "riru", "ksu", "apatch", "kernelsu",
     };
+}
+
+static std::vector<std::string> modules_blocklist() {
+    return { "magisk", "zygisk", "ksu", "apatch", "kernelsu",
+             "lspd", "riru", "shamiko", "hidemyapplist" };
 }
 
 /* Lines to strip from /system/build.prop etc. (complements property hook). */
@@ -487,6 +565,20 @@ static std::vector<std::string> mounts_blocklist() {
 
 static std::vector<std::string> netunix_blocklist() {
     return { "magiskd", "zygiskd", "lspd", "ksud", "apd", "kernelsu" };
+}
+
+/* Hidden module / framework dir names to skip when enumerating a directory
+ * (readdir/readdir64). Only exact names are matched to avoid false positives. */
+static bool dir_entry_blocked(const char *name) {
+    if (!name) return false;
+    static const char *blk[] = {
+        "magisk", "zygisk", "lspd", "riru", "ksu", "apatch", "kernelsu",
+        "shamiko", "hidemyapplist", "zygisk-next", "zygisk_assistant",
+        "movecert", ".magisk", nullptr,
+    };
+    for (auto p = blk; *p; ++p)
+        if (!strcmp(name, *p)) return true;
+    return false;
 }
 
 static std::string filter_lines(const std::string &in,
@@ -530,19 +622,42 @@ static std::string filter_status(const std::string &in) {
     return out;
 }
 
-static void track_buffd(int fd, const std::vector<std::string> &block, bool status_mode = false) {
+/* Sanitize a leaked root SELinux context in /proc/<pid>/attr/current.
+ * A real app runs as u:r:untrusted_app:s0 (or similar); anything mentioning
+ * magisk / zygisk / su / ksu / apatch is rewritten to a benign context. */
+static std::string filter_attr(const std::string &in) {
+    std::string ctx = in;
+    while (!ctx.empty() && (ctx.back() == '\n' || ctx.back() == ' ')) ctx.pop_back();
+    static const char *bad[] = {
+        "magisk", "zygisk", "su:", "ksu", "apatch", "kernelsu", "lspd", "riru",
+        nullptr,
+    };
+    for (auto p = bad; *p; ++p)
+        if (ctx.find(*p) != std::string::npos) return std::string("u:r:untrusted_app:s0");
+    return in;   // unchanged (already benign)
+}
+
+/* Read the whole virtual file, then store the sanitized copy under the fd.
+ * The mutex is held for the *entire* operation (read + insert) so an fd that
+ * gets reused mid-read cannot corrupt another tracked stream. */
+static void track_buffd(int fd, const std::vector<std::string> &block, BufMode mode = BufMode::LINES) {
     if (fd < 0) return;
+    std::lock_guard<std::mutex> lk(g_bufmtx);
+    if (g_buffds.count(fd)) return;   // already tracked for this fd
     std::string content;
     char buf[4096];
     ssize_t n;
     while ((n = orig_read(fd, buf, sizeof(buf))) > 0)
         content.append(buf, (size_t)n);
+    std::string out;
+    if (mode == BufMode::STATUS)      out = filter_status(content);
+    else if (mode == BufMode::ATTR)   out = filter_attr(content);
+    else                              out = filter_lines(content, block);
     BufFilter bf;
-    bf.data = status_mode ? filter_status(content) : filter_lines(content, block);
+    bf.data = std::move(out);
     bf.off = 0;
     bf.block = block;
-    bf.status_mode = status_mode;
-    std::lock_guard<std::mutex> lk(g_bufmtx);
+    bf.mode = mode;
     g_buffds[fd] = std::move(bf);
 }
 
@@ -554,6 +669,11 @@ static void drop_buffd(int fd) {
 /* ------------------------------------------------------------------ */
 /* /proc/<pid> process-name peek (used to hide magisk/zygisk daemons)  */
 /* ------------------------------------------------------------------ */
+
+// pid -> comm cache (comm rarely changes after exec, so caching is safe and
+// avoids repeatedly open/read/close on every /proc/<pid> access).
+static std::mutex g_commmtx;
+static std::unordered_map<long, std::string> g_commcache;
 
 static bool proc_dir_or_file_blocked(const char *path, bool is_dir) {
     if (strncmp(path, "/proc/", 6) != 0) return false;
@@ -574,16 +694,27 @@ static bool proc_dir_or_file_blocked(const char *path, bool is_dir) {
         if (!want) return false;
     }
     long pid = atol(rest);
-    char cpath[64];
-    snprintf(cpath, sizeof(cpath), "/proc/%ld/comm", pid);
-    int fd = orig_open(cpath, O_RDONLY);
-    if (fd < 0) return false;
-    char comm[64] = {0};
-    ssize_t n = orig_read(fd, comm, sizeof(comm) - 1);
-    orig_close(fd);
-    if (n <= 0) return false;
-    if (comm[n - 1] == '\n') comm[n - 1] = 0;
-    return proc_name_blocked(comm);
+    std::string comm;
+    {
+        std::lock_guard<std::mutex> lk(g_commmtx);
+        auto it = g_commcache.find(pid);
+        if (it != g_commcache.end()) comm = it->second;
+    }
+    if (comm.empty()) {
+        char cpath[64];
+        snprintf(cpath, sizeof(cpath), "/proc/%ld/comm", pid);
+        int fd = orig_open(cpath, O_RDONLY);
+        if (fd < 0) return false;
+        char cbuf[64] = {0};
+        ssize_t n = orig_read(fd, cbuf, sizeof(cbuf) - 1);
+        orig_close(fd);
+        if (n <= 0) return false;
+        if (cbuf[n - 1] == '\n') cbuf[n - 1] = 0;
+        comm = cbuf;
+        std::lock_guard<std::mutex> lk(g_commmtx);
+        g_commcache[pid] = comm;
+    }
+    return proc_name_blocked(comm.c_str());
 }
 
 /* ------------------------------------------------------------------ */
@@ -640,7 +771,7 @@ static int my_open(const char *path, int flags, ...) {
         // 调试器检测：TracerPid 归零
         if (g_cfg.antidebug && is_status_path(path)) {
             int fd = orig_open(path, flags, mode);
-            if (fd >= 0) track_buffd(fd, {}, true);
+            if (fd >= 0) track_buffd(fd, {}, BufMode::STATUS);
             return fd;
         }
         // 挂载点异常：剔除 magisk/ksu/apatch/zygisk 挂载行
@@ -655,14 +786,26 @@ static int my_open(const char *path, int flags, ...) {
             if (fd >= 0) track_buffd(fd, netunix_blocklist());
             return fd;
         }
+        // 内核模块列表：剔除 magisk/zygisk/ksu/apatch 等
+        if (g_cfg.proc_hide && is_modules_path(path)) {
+            int fd = orig_open(path, flags, mode);
+            if (fd >= 0) track_buffd(fd, modules_blocklist());
+            return fd;
+        }
+        // SELinux 上下文：伪装 root 上下文
+        if (g_cfg.proc_hide && is_attr_path(path)) {
+            int fd = orig_open(path, flags, mode);
+            if (fd >= 0) track_buffd(fd, {}, BufMode::ATTR);
+            return fd;
+        }
         // build.prop 行级过滤（与属性 Hook 互补）
         if (g_cfg.file_hide && is_buildprop_path(path)) {
             int fd = orig_open(path, flags, mode);
             if (fd >= 0) track_buffd(fd, buildprop_blocklist());
             return fd;
         }
-        // 内存映射：剔除 zygisk/frida/xhook/memfd 等特征行
-        if (is_maps_path(path)) {
+        // 内存映射：剔除 zygisk/frida/xhook/memfd 等特征行（仅在 native_hook 开启时）
+        if (g_cfg.native_hook && is_maps_path(path)) {
             int fd = orig_open(path, flags, mode);
             if (fd >= 0) track_buffd(fd, maps_blocklist());
             return fd;
@@ -688,7 +831,7 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
 
         if (g_cfg.antidebug && is_status_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
-            if (fd >= 0) track_buffd(fd, {}, true);
+            if (fd >= 0) track_buffd(fd, {}, BufMode::STATUS);
             return fd;
         }
         if (g_cfg.mount_hide && is_mounts_path(path)) {
@@ -701,12 +844,22 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
             if (fd >= 0) track_buffd(fd, netunix_blocklist());
             return fd;
         }
+        if (g_cfg.proc_hide && is_modules_path(path)) {
+            int fd = orig_openat(dirfd, path, flags, mode);
+            if (fd >= 0) track_buffd(fd, modules_blocklist());
+            return fd;
+        }
+        if (g_cfg.proc_hide && is_attr_path(path)) {
+            int fd = orig_openat(dirfd, path, flags, mode);
+            if (fd >= 0) track_buffd(fd, {}, BufMode::ATTR);
+            return fd;
+        }
         if (g_cfg.file_hide && is_buildprop_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
             if (fd >= 0) track_buffd(fd, buildprop_blocklist());
             return fd;
         }
-        if (is_maps_path(path)) {
+        if (g_cfg.native_hook && is_maps_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
             if (fd >= 0) track_buffd(fd, maps_blocklist());
             return fd;
@@ -744,6 +897,12 @@ static int my_lstat(const char *path, struct stat *buf) {
     return orig_lstat(path, buf);
 }
 
+static int my_fstatat(int dirfd, const char *path, struct stat *buf, int flags) {
+    if (path && g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
+    if (path && g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+    return orig_fstatat(dirfd, path, buf, flags);
+}
+
 static FILE *my_fopen(const char *path, const char *mode) {
     if (path) {
         if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return nullptr; }
@@ -751,7 +910,7 @@ static FILE *my_fopen(const char *path, const char *mode) {
 
         if (g_cfg.antidebug && is_status_path(path)) {
             FILE *f = orig_fopen(path, mode);
-            if (f) track_buffd(fileno(f), {}, true);
+            if (f) track_buffd(fileno(f), {}, BufMode::STATUS);
             return f;
         }
         if (g_cfg.mount_hide && is_mounts_path(path)) {
@@ -764,12 +923,22 @@ static FILE *my_fopen(const char *path, const char *mode) {
             if (f) track_buffd(fileno(f), netunix_blocklist());
             return f;
         }
+        if (g_cfg.proc_hide && is_modules_path(path)) {
+            FILE *f = orig_fopen(path, mode);
+            if (f) track_buffd(fileno(f), modules_blocklist());
+            return f;
+        }
+        if (g_cfg.proc_hide && is_attr_path(path)) {
+            FILE *f = orig_fopen(path, mode);
+            if (f) track_buffd(fileno(f), {}, BufMode::ATTR);
+            return f;
+        }
         if (g_cfg.file_hide && is_buildprop_path(path)) {
             FILE *f = orig_fopen(path, mode);
             if (f) track_buffd(fileno(f), buildprop_blocklist());
             return f;
         }
-        if (is_maps_path(path)) {
+        if (g_cfg.native_hook && is_maps_path(path)) {
             FILE *f = orig_fopen(path, mode);
             if (f) track_buffd(fileno(f), maps_blocklist());
             return f;
@@ -788,6 +957,24 @@ static DIR *my_opendir(const char *name) {
         errno = ENOENT; return nullptr;
     }
     return orig_opendir(name);
+}
+
+static struct dirent *my_readdir(DIR *dirp) {
+    struct dirent *e;
+    while ((e = orig_readdir(dirp)) != nullptr) {
+        if (g_cfg.file_hide && dir_entry_blocked(e->d_name)) continue;
+        return e;
+    }
+    return nullptr;
+}
+
+static struct dirent64 *my_readdir64(DIR *dirp) {
+    struct dirent64 *e;
+    while ((e = orig_readdir64(dirp)) != nullptr) {
+        if (g_cfg.file_hide && dir_entry_blocked(e->d_name)) continue;
+        return e;
+    }
+    return nullptr;
 }
 
 static int my_readlink(const char *path, char *buf, size_t bufsiz) {
@@ -813,14 +1000,32 @@ static char *my_realpath(const char *path, char *resolved) {
 
 /* Strip injection-library paths from dladdr() results.
  * Momo / Ruru call dladdr() on function pointers to discover injected
- * libraries (magisk / zygisk / frida / lsplant / xhook ...). */
+ * libraries (magisk / zygisk / frida / lsplant / xhook ...).
+ * On a hit we return 0 (resolution failed) instead of handing back an empty
+ * dli_fname — a real, un-hooked system never returns an empty filename, so
+ * the old behaviour itself was a detection tell. */
 static int my_dladdr(void *addr, Dl_info *info) {
     int r = orig_dladdr(addr, info);
     if (r && info && g_cfg.dladdr_hide && info->dli_fname && injlib_blocked(info->dli_fname)) {
-        info->dli_fname = "";
-        info->dli_sname = "";
+        return 0;   // 伪装为"无法解析"，而非暴露空文件名
     }
     return r;
+}
+
+static int my_openat2(int dirfd, const char *path, const void *how, size_t size) {
+    if (path) {
+        if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
+        if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+    }
+    return orig_openat2(dirfd, path, how, size);
+}
+
+static int my_statx(int dirfd, const char *path, int flags, unsigned int mask, void *stx) {
+    if (path) {
+        if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
+        if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+    }
+    return orig_statx(dirfd, path, flags, mask, stx);
 }
 
 static int my_sysprop_get(const char *name, char *value) {
@@ -888,15 +1093,40 @@ static ssize_t my_pread64(int fd, void *buf, size_t count, off64_t offset) {
         std::lock_guard<std::mutex> lk(g_bufmtx);
         auto it = g_buffds.find(fd);
         if (it != g_buffds.end()) {
+            // pread64 reads at the GIVEN offset without moving the sequential
+            // cursor, so a detector mixing read()+pread64() sees consistent data.
             BufFilter &bf = it->second;
-            size_t remain = bf.data.size() - bf.off;
+            size_t start = (offset < 0) ? 0 : (size_t)offset;
+            if (start > bf.data.size()) start = bf.data.size();
+            size_t remain = bf.data.size() - start;
             size_t tocopy = remain < count ? remain : count;
-            if (tocopy) memcpy(buf, bf.data.data() + bf.off, tocopy);
-            bf.off += tocopy;
+            if (tocopy) memcpy(buf, bf.data.data() + start, tocopy);
             return (ssize_t)tocopy;
         }
     }
     return orig_pread64(fd, buf, count, offset);
+}
+
+/* Keep the buffered read cursor in sync with explicit seeks, otherwise a
+ * detector that does read() then lseek(SEEK_SET,0) then read() again would
+ * get desynced (or duplicated) content. */
+static void sync_buffd_off(int fd, off64_t newpos) {
+    if (newpos < 0) return;
+    std::lock_guard<std::mutex> lk(g_bufmtx);
+    auto it = g_buffds.find(fd);
+    if (it != g_buffds.end()) it->second.off = (size_t)newpos;
+}
+
+static off_t my_lseek(int fd, off_t offset, int whence) {
+    off_t r = orig_lseek(fd, offset, whence);
+    sync_buffd_off(fd, (off64_t)r);
+    return r;
+}
+
+static off64_t my_lseek64(int fd, off64_t offset, int whence) {
+    off64_t r = orig_lseek64(fd, offset, whence);
+    sync_buffd_off(fd, r);
+    return r;
 }
 
 static int my_close(int fd) {
@@ -930,19 +1160,28 @@ public:
         #define REG(repl, orig, sym) \
             api->pltHookRegister(".*", sym, (void *)repl, (void **)&orig)
 
-        if (g_cfg.file_hide || g_cfg.proc_hide || applist) {
+        if (g_cfg.file_hide || g_cfg.proc_hide || g_cfg.native_hook || applist) {
             REG(my_open,       orig_open,       "open");
             REG(my_openat,     orig_openat,     "openat");
             REG(my_access,     orig_access,     "access");
             REG(my_faccessat,  orig_faccessat,  "faccessat");
             REG(my_stat,       orig_stat,       "stat");
             REG(my_lstat,      orig_lstat,      "lstat");
+            REG(my_fstatat,    orig_fstatat,    "fstatat");
             REG(my_fopen,      orig_fopen,      "fopen");
             REG(my_readlink,   orig_readlink,   "readlink");
             REG(my_realpath,   orig_realpath,   "realpath");
         }
+        if (g_cfg.file_hide || g_cfg.proc_hide) {
+            REG(my_openat2,    orig_openat2,    "openat2");
+            REG(my_statx,      orig_statx,      "statx");
+        }
         if (g_cfg.proc_hide) {
             REG(my_opendir, orig_opendir, "opendir");
+        }
+        if (g_cfg.file_hide) {
+            REG(my_readdir,   orig_readdir,   "readdir");
+            REG(my_readdir64, orig_readdir64, "readdir64");
         }
         if (g_cfg.dladdr_hide) {
             REG(my_dladdr, orig_dladdr, "dladdr");
@@ -950,11 +1189,13 @@ public:
         if (g_cfg.prop_hide) {
             REG(my_sysprop_get, orig_sysprop_get, "__system_property_get");
         }
-        // 内容级过滤（maps / status / mounts / netunix / packages.xml）需要 read + close
+        // 内容级过滤（maps / status / mounts / netunix / modules / attr / packages.xml）需要 read + pread64 + close + lseek
         if (g_cfg.file_hide || applist || g_cfg.mount_hide ||
-            g_cfg.antidebug || g_cfg.proc_hide) {
+            g_cfg.antidebug || g_cfg.proc_hide || g_cfg.native_hook) {
             REG(my_read,    orig_read,    "read");
             REG(my_pread64, orig_pread64, "pread64");
+            REG(my_lseek,   orig_lseek,   "lseek");
+            REG(my_lseek64, orig_lseek64, "lseek64");
             REG(my_close,   orig_close,   "close");
         }
         if (g_cfg.file_hide) {
@@ -971,9 +1212,10 @@ public:
         if (!api->pltHookCommit())
             HAR_LOG("pltHookCommit failed for %s", pkg.c_str());
         else
-            HAR_LOG("hooks active for %s (file=%d prop=%d proc=%d applist=%d mount=%d adb=%d)",
+            HAR_LOG("hooks active for %s (file=%d prop=%d proc=%d applist=%d mount=%d adb=%d native=%d)",
                     pkg.c_str(), g_cfg.file_hide, g_cfg.prop_hide,
-                    g_cfg.proc_hide, applist, g_cfg.mount_hide, g_cfg.antidebug);
+                    g_cfg.proc_hide, applist, g_cfg.mount_hide, g_cfg.antidebug,
+                    g_cfg.native_hook);
     }
 };
 

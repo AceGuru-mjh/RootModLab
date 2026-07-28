@@ -49,7 +49,7 @@ echo "[*] Packaging $ZIP_NAME ..."
 rm -f "$MODULE_DIR/$ZIP_NAME"
 ( cd "$MODULE_DIR" && zip -r -q "../$ZIP_NAME" . \
     -x 'jni/*' -x 'out/*' -x 'libs/*' -x 'obj/*' -x '.git/*' -x '*.zip' \
-       -x 'build.sh' -x 'README.md' -x '.clang-format' )
+       -x 'build.sh' -x 'README.md' -x '.clang-format' -x '.github/*' )
 mv "$MODULE_DIR/../$ZIP_NAME" "$MODULE_DIR/$ZIP_NAME"
 
 echo "[*] Done -> $MODULE_DIR/$ZIP_NAME"
