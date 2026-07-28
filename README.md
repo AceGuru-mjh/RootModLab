@@ -1,8 +1,10 @@
 # HideAllRoot · 一键全隐藏 Root（Zygisk 一体化隐藏模块）
 
 > 基于 **Zygisk** 的 Magisk / KernelSU / APatch 通用 Root 痕迹隐藏模块，
-> 针对 **Momo / Ruru / 春秋 (SpringRoot)** 三大检测工具做全维度对抗，
+> 针对 **Momo / Ruru / 春秋 (SpringRoot) / RootBeer** 等检测工具做全维度对抗，
 > 内置 **WebUI 配置面板** 与 **终端菜单**，可迭代、可编译、合规开源。
+>
+> **开发者：MJH** · 当前版本 **v1.2**
 
 ---
 
@@ -61,6 +63,12 @@ HideAllRoot/
 | Native 层 `libzygisk.so` 映射 | 拦截 `/proc/self/maps`、`/proc/<pid>/maps` 读取并抹除特征行 | `main.cpp` |
 | 应用列表（春秋重点） | 过滤 `/data/system/packages.xml`、`/data/system/packages.list` 中 Magisk/LSPosed 包名 | `main.cpp` |
 | 反调试（Ruru 自附加） | Hook `ptrace` 阻断 `PTRACE_ATTACH/SEIZE` 到自身 | `main.cpp` |
+| 解锁 Bootloader 属性 | Hook `__system_property_get` 将 `ro.boot.verifiedbootstate`→`green`、`ro.boot.flash.locked`→`1`、`ro.oem.lockstate`→`locked` 等 | `main.cpp` |
+| 调试器 `TracerPid` | 过滤 `/proc/self/status` 将 `TracerPid` 强制归零 | `main.cpp` |
+| 挂载点异常（Momo 重点） | 过滤 `/proc/mounts`、`/proc/self/mountinfo` 中 magisk/ksu/apatch/zygisk 挂载行 | `main.cpp` |
+| 守护进程 socket | 过滤 `/proc/net/unix` 中 `magiskd`/`zygiskd`/`ksud`/`apd` 等 socket | `main.cpp` |
+| 注入框架内存特征 | 过滤 `/proc/self/maps` 中 `frida`/`xhook`/`memfd:`/`zygisk_module_entry` 等行（含 Ruru 的 /memfd:jit-cache 扫描） | `main.cpp` |
+| 扩充的 Root 框架 / 应用 | 隐藏包名与路径覆盖 Magisk 全分支（Kitsune）、KernelSU、APatch、LSPosed、Riru、TaiChi、EdXposed、SuperSU、Shamiko、Hide-My-Applist、BusyBox 等 | `main.cpp` |
 | DenyList 兜底 | 安装时把检测工具加入 Magisk DenyList（不强制，由模块接管） | `customize.sh` |
 
 ---
@@ -139,8 +147,10 @@ bash build.sh
 # HideAllRoot (English)
 
 > A **Zygisk**-based, all-in-one root-trace hiding module for **Magisk / KernelSU / APatch**,
-> built to defeat the **Momo / Ruru / SpringRoot (春秋)** detection tools across every dimension.
+> built to defeat the **Momo / Ruru / SpringRoot (春秋) / RootBeer** detection tools across every dimension.
 > Ships with a **WebUI config panel** and a **terminal menu**. Iterative, compilable, and open-source.
+>
+> **Developer: MJH** · **v1.2**
 
 ## Architecture
 
@@ -165,8 +175,14 @@ bash build.sh
 | Process enum `magiskd`/`zygiskd`/`lsposed` | Block `/proc/<pid>/{cmdline,comm,status,stat,wchan,exe}` & `/proc/<pid>` dir → `ENOENT` | `main.cpp` |
 | Command exec `su`/`magisk` | Hook popen/system/execve | `main.cpp` |
 | Native `libzygisk.so` mapping | Filter `/proc/self/maps` & `/proc/<pid>/maps` line-by-line | `main.cpp` |
-| App list (SpringRoot focus) | Filter `/data/system/packages.xml` / `packages.list` for Magisk/LSPosed packages | `main.cpp` |
+| App list (SpringRoot focus) | Filter `/data/system/packages.xml` / `packages.list` for Magisk/LSPosed/KSU/APatch packages | `main.cpp` |
 | Anti-debug (Ruru self-attach) | Hook `ptrace` to block `PTRACE_ATTACH/SEIZE` on self | `main.cpp` |
+| Bootloader-unlock props | Hook `__system_property_get`: `ro.boot.verifiedbootstate`→`green`, `ro.boot.flash.locked`→`1`, `ro.oem.lockstate`→`locked`, etc. | `main.cpp` |
+| Debugger `TracerPid` | Filter `/proc/self/status`, force `TracerPid` to 0 | `main.cpp` |
+| Mount anomalies (Momo focus) | Filter `magisk`/`ksu`/`apatch`/`zygisk` lines from `/proc/mounts` & `/proc/self/mountinfo` | `main.cpp` |
+| Daemon sockets | Filter `magiskd`/`zygiskd`/`ksud`/`apd` from `/proc/net/unix` | `main.cpp` |
+| Injection memory | Filter `frida`/`xhook`/`memfd:`/`zygisk_module_entry` lines from `/proc/self/maps` (incl. Ruru's /memfd:jit-cache scan) | `main.cpp` |
+| Expanded frameworks/apps | Hide packages & paths for Magisk (all forks), KernelSU, APatch, LSPosed, Riru, TaiChi, EdXposed, SuperSU, Shamiko, Hide-My-Applist, BusyBox… | `main.cpp` |
 | DenyList fallback | Add detectors to Magisk DenyList at install (optional, module takes over) | `customize.sh` |
 
 ## Build & Package

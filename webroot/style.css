@@ -13,6 +13,14 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+.credit {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding: 10px 0 2px;
+    letter-spacing: 0.3px;
+}
+
 body {
     font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
     background: var(--bg-gradient);

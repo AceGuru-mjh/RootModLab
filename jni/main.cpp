@@ -2,21 +2,27 @@
  * HideAllRoot — Zygisk native hide module (libzygisk-hide.so)
  * -----------------------------------------------------------
  * Intercepts the low-level syscalls / libc calls that root detectors
- * (Momo / Ruru / SpringRoot-春秋) rely on, and feeds them sanitized
- * results. All behaviour is driven by /data/adb/hideallroot/config.conf
- * so the operator can tune it from the WebUI without recompiling.
+ * (Momo / Ruru / SpringRoot-春秋 / RootBeer / Play Integrity) rely on,
+ * and feeds them sanitized results. All behaviour is driven by
+ * /data/adb/hideallroot/config.conf so the operator can tune it from the
+ * WebUI without recompiling.
  *
- * Hook categories:
- *   1. File/access/stat   — hide su / magisk / lspd paths
- *   2. Property           — hide ro.magisk.*, ro.debuggable, ro.build.tags ...
- *   3. Process enumeration— hide magisk/zygisk/lsposed from /proc
- *   4. Command execution  — block `su` / `magisk` / `zygisk` from popen/execve
- *   5. Anti-debug         — block self ptrace attach (Ruru trap)
- *   6. Memory map / pkg list filtering — strip libzygisk / Magisk from
- *      /proc/self/maps and /data/system/packages.xml read by detectors
+ * Hook categories (v1.2, comprehensive):
+ *   1. File/access/stat   — hide su / magisk / ksu / apatch / lspd / busybox paths
+ *   2. Property           — hide ro.magisk.* / ro.ksu.* / ro.apatch.* / ro.riru.* /
+ *                           ro.lsposed.* and sanitize bootloader-unlock props
+ *   3. Process enumeration— hide magiskd/zygiskd/lspd/ksud/apd from /proc
+ *   4. Command execution  — block `su` / `magisk` / `ksu` / `apatch` from popen/execve
+ *   5. Maps / memfd       — strip libzygisk / frida / xhook / memfd: zygisk_module_entry
+ *   6. App list           — filter packages.xml / packages.list for root-manager pkgs
+ *   7. Mount points       — strip magisk/ksu/apatch/zygisk overlay mount lines
+ *   8. Daemon sockets     — strip magiskd/zygiskd sockets from /proc/net/unix
+ *   9. Anti-debug         — zero TracerPid in /proc/self/status + block self ptrace
  *
  * Compatible: Magisk 25.0+ (native Zygisk). KernelSU / APatch require the
  * ZygiskNext companion module for this .so to load.
+ *
+ * Developer: MJH
  */
 
 #include <zygisk.hpp>
@@ -60,7 +66,8 @@ struct Config {
     bool proc_hide    = true;
     bool antidebug    = true;
     bool pi_fix       = true;
-    int  target_mode  = 0;                 // 0=all 1=detect 2=custom
+    bool mount_hide   = true;       // NEW v1.2: hide overlay/magisk mount lines
+    int  target_mode  = 0;          // 0=all 1=detect 2=custom
     std::vector<std::string> detect_pkgs;
     std::vector<std::string> custom_pkgs;
 };
@@ -70,13 +77,53 @@ static Config g_cfg;
 // (Excludes framework/system processes even when TARGET_MODE=all.)
 static bool g_apply_applist = false;
 
-/* Package names whose presence we hide from app-list / package scanners. */
+/* Package names whose presence we hide from app-list / package scanners.
+ * Covers Magisk (all forks), KernelSU, APatch, LSPosed, Riru, TaiChi,
+ * EdXposed, SuperSU, Shamiko, Hide-My-Applist, BusyBox and the detectors
+ * themselves. */
 static const char *kHiddenPkgs[] = {
+    // Magisk (official / Canary / Alpha / Kitsune)
     "com.topjohnwu.magisk",
     "com.topjohnwu.magisk.debug",
+    "com.kitsune.magisk",
+    "com.kitsune.magisk.debug",
+    // KernelSU
+    "me.weishu.kernelsu",
+    "me.weishu.kernelsu.debug",
+    "com.dergoogler.manager",
+    "com.dergoogler.kernelsu.ui",
+    // APatch
+    "me.bmax.apatch",
+    "me.bmax.apatch.debug",
+    "com.apatch.manager",
+    // LSPosed / Riru / TaiChi / EdXposed
     "org.lsposed.lspd",
     "org.lsposed.manager",
-    "com.matmods.modmanager",   // MMT-Extended
+    "org.lsposed.android",
+    "com.taichi.gen",
+    "com.taichi.app",
+    "com.elderdrivers.edxp",
+    "com.elderdrivers.edxposed",
+    // SuperSU / 旧版 root 管理
+    "eu.chainfire.supersu",
+    "com.noshufou.android.su",
+    "com.koushikdutta.superuser",
+    "com.topjohnwu.superuser",
+    "com.kingroot.master",
+    "com.kingo.root",
+    "com.smedialink.kh",
+    "com.joeykrim.rootbox",
+    "com.ramdroid.appquarantine",
+    // 隐藏类模块自身（防止被识别为"隐藏模块残留"）
+    "com.tsng.hidemyapplist",   // Hide My Applist
+    "me.weishu.shamiko",         // Shamiko
+    "com.theringer.zygisknext",  // ZygiskNext（若有配套 App）
+    // 检测工具本身（TARGET_MODE=1 时也会由 DETECT_PKGS 覆盖）
+    "com.xtremelabs.momo",
+    "com.springroot.ruru",
+    "com.chunqiu.check",
+    "com.softwinner.firetesting",
+    "com.bunny.redtest",
     nullptr,
 };
 
@@ -120,6 +167,7 @@ static void load_config() {
         else if (key == "ENABLE_PROC_HIDE")   g_cfg.proc_hide   = parse_bool(val);
         else if (key == "ENABLE_ANTIDEBUG")   g_cfg.antidebug   = parse_bool(val);
         else if (key == "ENABLE_PI_FIX")      g_cfg.pi_fix      = parse_bool(val);
+        else if (key == "ENABLE_MOUNT_HIDE")  g_cfg.mount_hide  = parse_bool(val);
         else if (key == "TARGET_MODE")        g_cfg.target_mode = atoi(val.c_str());
         else if (key == "DETECT_PKGS")        split_csv(val, g_cfg.detect_pkgs);
         else if (key == "CUSTOM_PKGS")        split_csv(val, g_cfg.custom_pkgs);
@@ -132,13 +180,33 @@ static void load_config() {
 /* ------------------------------------------------------------------ */
 
 static const char *kFilePathBlocks[] = {
-    "/system/bin/su", "/system/xbin/su", "/sbin/su", "/dev/su", "/su/bin/su",
-    "/system/bin/magisk", "/system/xbin/magisk",
+    // su / superuser
+    "/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su", "/dev/su",
+    "/system/app/Superuser.apk", "/system/app/supersu",
+    "/data/app/eu.chainfire.supersu",
+    // magisk (官方 / Canary / Alpha / Kitsune)
+    "/system/bin/magisk", "/system/xbin/magisk", "/sbin/magisk",
     "/data/adb/magisk", "/data/adb/magisk.db", "/data/adb/magisk.log",
-    "/cache/magisk.log", "/cache/.magisk", "/dev/magisk",
-    "/sbin/.magisk", "/data/adb/lspd", "/data/adb/modules/lspd",
-    "/data/adb/modules/com.topjohnwu.magisk", "/data/app/com.topjohnwu.magisk",
-    "magisk.img", "magisk_merge", nullptr,
+    "/cache/magisk.log", "/cache/.magisk", "/dev/magisk", "/sbin/.magisk",
+    "/data/adb/magisk.img", "magisk_merge",
+    // magisk 模块目录（具体已知模块）
+    "/data/adb/modules/lspd", "/data/adb/modules/riru",
+    "/data/adb/modules/zygisk", "/data/adb/modules/zygisk-next",
+    "/data/adb/modules/shamiko", "/data/adb/modules/hidemyapplist",
+    "/data/adb/modules/zygisk_assistant", "/data/adb/modules/movecert",
+    "/data/adb/modules/com.topjohnwu.magisk",
+    "/data/app/com.topjohnwu.magisk",
+    // KernelSU / APatch
+    "/data/adb/ksu", "/data/adb/ap", "/data/adb/apatch",
+    "/data/adb/modules/../ksu", "/data/adb/modules/../ap",
+    // busybox
+    "/system/xbin/busybox", "/sbin/busybox", "/magisk/.core/busybox",
+    // zygisk 控制面
+    "/dev/zygisk",
+    // init / late_start 脚本
+    "/data/adb/post-fs-data.d", "/data/adb/service.d",
+    "/system/etc/init.d",
+    nullptr,
 };
 
 static bool path_blocked(const char *path) {
@@ -148,15 +216,30 @@ static bool path_blocked(const char *path) {
     return false;
 }
 
-/* Properties we must sanitize, and their clean factory values. */
+/* Properties we must sanitize, and their clean factory values.
+ * Includes root-framework props AND bootloader-unlock indicators that
+ * Momo / SpringRoot flag. */
 static bool prop_is_blocked(const char *name) {
     if (!name) return false;
-    if (!strncmp(name, "ro.magisk", 9) || !strncmp(name, "ro.zygisk", 9))
+    // root-framework prefix props
+    if (!strncmp(name, "ro.magisk", 9) || !strncmp(name, "ro.zygisk", 9) ||
+        !strncmp(name, "ro.ksu", 6) || !strncmp(name, "ro.apatch", 9) ||
+        !strncmp(name, "ro.riru", 7) || !strncmp(name, "ro.lsposed", 10) ||
+        !strncmp(name, "persist.magisk", 14) ||
+        !strncmp(name, "persist.vendor.magisk", 20) ||
+        !strncmp(name, "ro.daemon.magisk", 16) ||
+        !strncmp(name, "ro.bin.magisk", 13))
         return true;
     static const char *exact[] = {
         "ro.debuggable", "ro.secure", "ro.build.type", "ro.build.tags",
         "ro.build.selinux", "init.svc.magiskd", "init.svc.zygiskd",
         "persist.sys.root", "ro.kernel.qemu", "ro.boot.vbmeta.device_state",
+        // bootloader unlock 指示（Momo / SpringRoot 重点）
+        "ro.boot.verifiedbootstate", "ro.boot.flash.locked",
+        "ro.boot.veritymode", "ro.oem.lockstate",
+        "ro.vendor.boot.verifiedbootstate", "ro.boot.warranty_bit",
+        "ro.warranty_bit", "ro.boot.vbmeta.device_state",
+        "ro.boot.ddr",
         nullptr,
     };
     for (auto p = exact; *p; ++p)
@@ -165,8 +248,14 @@ static bool prop_is_blocked(const char *name) {
 }
 
 static const char *safe_prop_value(const char *name) {
-    if (!strncmp(name, "ro.magisk", 9) || !strncmp(name, "ro.zygisk", 9))
-        return "";                       // Magisk simply does not exist
+    if (!strncmp(name, "ro.magisk", 9) || !strncmp(name, "ro.zygisk", 9) ||
+        !strncmp(name, "ro.ksu", 6) || !strncmp(name, "ro.apatch", 9) ||
+        !strncmp(name, "ro.riru", 7) || !strncmp(name, "ro.lsposed", 10) ||
+        !strncmp(name, "persist.magisk", 14) ||
+        !strncmp(name, "persist.vendor.magisk", 20) ||
+        !strncmp(name, "ro.daemon.magisk", 16) ||
+        !strncmp(name, "ro.bin.magisk", 13))
+        return "";                       // 框架本身不存在
     if (!strcmp(name, "ro.debuggable"))      return "0";
     if (!strcmp(name, "ro.secure"))          return "1";
     if (!strcmp(name, "ro.build.type"))      return "user";
@@ -175,12 +264,21 @@ static const char *safe_prop_value(const char *name) {
     if (!strcmp(name, "init.svc.magiskd"))   return "";
     if (!strcmp(name, "init.svc.zygiskd"))   return "";
     if (!strcmp(name, "persist.sys.root"))   return "0";
+    // bootloader 锁状态 -> 伪装为已锁
+    if (!strcmp(name, "ro.boot.verifiedbootstate"))      return "green";
+    if (!strcmp(name, "ro.vendor.boot.verifiedbootstate")) return "green";
+    if (!strcmp(name, "ro.boot.vbmeta.device_state"))    return "locked";
+    if (!strcmp(name, "ro.boot.flash.locked"))           return "1";
+    if (!strcmp(name, "ro.boot.veritymode"))             return "enforcing";
+    if (!strcmp(name, "ro.oem.lockstate"))               return "locked";
+    if (!strcmp(name, "ro.boot.warranty_bit"))           return "0";
+    if (!strcmp(name, "ro.warranty_bit"))                return "0";
     return "";
 }
 
 static const char *kProcNameBlocks[] = {
     "magisk", "magiskd", "zygisk", "zygiskd", "daemonsu", "supersu",
-    "lspd", "lsposed", "edxp", "taichi", nullptr,
+    "lspd", "lsposed", "edxp", "taichi", "ksud", "apd", "kernelsu", nullptr,
 };
 
 static bool proc_name_blocked(const char *comm) {
@@ -191,7 +289,8 @@ static bool proc_name_blocked(const char *comm) {
 }
 
 static const char *kCmdBlocks[] = {
-    "magisk", "zygisk", "supersu", "daemonsu", "/su", nullptr,
+    "magisk", "zygisk", "supersu", "daemonsu", "ksu", "apatch",
+    "/su", "kernelsu", nullptr,
 };
 
 static bool cmd_blocked(const char *s) {
@@ -228,13 +327,14 @@ static ssize_t   (*orig_pread64) (int, void *, size_t, off64_t)                 
 static int       (*orig_close)   (int)                                            = nullptr;
 
 /* ------------------------------------------------------------------ */
-/* Buffered content filter (for /proc/self/maps and packages.xml)      */
+/* Buffered content filter (for /proc maps, status, mounts, packages) */
 /* ------------------------------------------------------------------ */
 
 struct BufFilter {
     std::string data;
     size_t      off = 0;
     std::vector<std::string> block;
+    bool        status_mode = false;   // true => rewrite TracerPid instead of drop lines
 };
 
 static std::unordered_map<int, BufFilter> g_buffds;
@@ -245,7 +345,6 @@ static bool is_maps_path(const char *path) {
     size_t n = strlen(path);
     if (n < 5) return false;
     if (strcmp(path + n - 5, "/maps") != 0) return false;
-    // /proc/self/maps or /proc/<pid>/maps
     if (strncmp(path, "/proc/", 6) != 0) return false;
     return true;
 }
@@ -254,6 +353,66 @@ static bool is_pkglist_path(const char *path) {
     if (!path) return false;
     return strstr(path, "/data/system/packages.xml") ||
            strstr(path, "/data/system/packages.list");
+}
+
+static bool is_status_path(const char *path) {
+    if (!path) return false;
+    if (!strcmp(path, "/proc/self/status")) return true;
+    if (strncmp(path, "/proc/", 6) != 0) return false;
+    const char *rest = path + 6;
+    if (!isdigit((unsigned char)rest[0])) return false;
+    const char *p = rest; while (isdigit((unsigned char)*p)) p++;
+    return !strcmp(p, "/status");
+}
+
+static bool is_mounts_path(const char *path) {
+    if (!path) return false;
+    if (!strcmp(path, "/proc/mounts")) return true;
+    if (!strcmp(path, "/proc/self/mountinfo")) return true;
+    if (strncmp(path, "/proc/", 6) != 0) return false;
+    const char *rest = path + 6;
+    if (!isdigit((unsigned char)rest[0])) return false;
+    const char *p = rest; while (isdigit((unsigned char)*p)) p++;
+    return !strcmp(p, "/mountinfo") || !strcmp(p, "/mounts");
+}
+
+static bool is_netunix_path(const char *path) {
+    return !strcmp(path, "/proc/net/unix") ||
+           !strcmp(path, "/proc/net/tcp")  ||
+           !strcmp(path, "/proc/net/tcp6");
+}
+
+/* Blocklists for the various virtual files. */
+static std::vector<std::string> maps_blocklist() {
+    return {
+        "libzygisk", "zygisk", "Zygisk", "magisk", ".magisk",
+        "/dev/zygisk", "/dev/magisk", "/data/adb/modules/hideallroot",
+        // 注入框架 / 内存特征
+        "frida", "libfrida", "gum", "linjector", "xhook",
+        "libDexHelper", "memfd:", "zygisk_module_entry",
+        // 其它框架
+        "lspd", "riru", "ksu", "apatch", "kernelsu",
+    };
+}
+
+static std::vector<std::string> applist_blocklist() {
+    std::vector<std::string> blk;
+    for (auto p = kHiddenPkgs; *p; ++p) blk.emplace_back(*p);
+    for (auto &p : g_cfg.detect_pkgs) blk.push_back(p);
+    for (auto &p : g_cfg.custom_pkgs) blk.push_back(p);
+    return blk;
+}
+
+static std::vector<std::string> mounts_blocklist() {
+    return {
+        "magisk", "zygisk", "ksu", "apatch", "kernelsu", "lspd", "riru",
+        "/data/adb/modules", "/dev/zygisk", "/dev/magisk",
+        "modules.img", "magisk_merge",
+    };
+}
+
+static std::vector<std::string> netunix_blocklist() {
+    return { "magiskd", "zygiskd", "lspd", "ksud", "apd", "kernelsu" };
 }
 
 static std::string filter_lines(const std::string &in,
@@ -278,7 +437,26 @@ static std::string filter_lines(const std::string &in,
     return out;
 }
 
-static void track_buffd(int fd, const std::vector<std::string> &block) {
+/* Rewrite TracerPid to 0 so the process never looks debugged. */
+static std::string filter_status(const std::string &in) {
+    std::string out;
+    size_t start = 0, pos;
+    while ((pos = in.find('\n', start)) != std::string::npos) {
+        std::string line = in.substr(start, pos - start);
+        if (line.rfind("TracerPid:", 0) == 0) out += "TracerPid:\t0";
+        else out += line;
+        out += '\n';
+        start = pos + 1;
+    }
+    if (start < in.size()) {
+        std::string line = in.substr(start);
+        if (line.rfind("TracerPid:", 0) == 0) out += "TracerPid:\t0";
+        else out += line;
+    }
+    return out;
+}
+
+static void track_buffd(int fd, const std::vector<std::string> &block, bool status_mode = false) {
     if (fd < 0) return;
     std::string content;
     char buf[4096];
@@ -286,9 +464,10 @@ static void track_buffd(int fd, const std::vector<std::string> &block) {
     while ((n = orig_read(fd, buf, sizeof(buf))) > 0)
         content.append(buf, (size_t)n);
     BufFilter bf;
-    bf.data = filter_lines(content, block);
+    bf.data = status_mode ? filter_status(content) : filter_lines(content, block);
     bf.off = 0;
     bf.block = block;
+    bf.status_mode = status_mode;
     std::lock_guard<std::mutex> lk(g_bufmtx);
     g_buffds[fd] = std::move(bf);
 }
@@ -303,7 +482,6 @@ static void drop_buffd(int fd) {
 /* ------------------------------------------------------------------ */
 
 static bool proc_dir_or_file_blocked(const char *path, bool is_dir) {
-    // only /proc/<digits>[/...]
     if (strncmp(path, "/proc/", 6) != 0) return false;
     const char *rest = path + 6;
     if (!strncmp(rest, "self/", 5)) return false;
@@ -314,7 +492,6 @@ static bool proc_dir_or_file_blocked(const char *path, bool is_dir) {
     if (*p != '/') return false;          // not /proc/<pid>/something
     const char *file = p + 1;
     if (is_dir) {
-        // hide the whole pid directory from opendir("/proc/<pid>")
         if (file[0] != '\0') return false; // only exact /proc/<pid>
     } else {
         bool want = !strcmp(file, "cmdline") || !strcmp(file, "comm") ||
@@ -346,7 +523,6 @@ static std::string get_self_package() {
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
     close(fd);
     if (n <= 0) return "";
-    // first null-terminated token is the process / package name
     return std::string(buf);
 }
 
@@ -357,7 +533,6 @@ static bool is_target_pkg(const std::string &pkg) {
             if (p == pkg) return true;
         return false;
     }
-    // custom
     for (auto &p : g_cfg.custom_pkgs)
         if (p == pkg) return true;
     return false;
@@ -387,26 +562,35 @@ static int my_open(const char *path, int flags, ...) {
     if (path) {
         if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
-        if (is_maps_path(path)) {
+
+        // 调试器检测：TracerPid 归零
+        if (g_cfg.antidebug && is_status_path(path)) {
             int fd = orig_open(path, flags, mode);
-            if (fd >= 0) {
-                std::vector<std::string> blk = {
-                    "libzygisk", "zygisk", "magisk", ".magisk",
-                    "/data/adb/modules/hideallroot", "Zygisk",
-                };
-                track_buffd(fd, blk);
-            }
+            if (fd >= 0) track_buffd(fd, {}, true);
             return fd;
         }
+        // 挂载点异常：剔除 magisk/ksu/apatch/zygisk 挂载行
+        if (g_cfg.mount_hide && is_mounts_path(path)) {
+            int fd = orig_open(path, flags, mode);
+            if (fd >= 0) track_buffd(fd, mounts_blocklist());
+            return fd;
+        }
+        // 守护进程 socket：剔除 magiskd/zygiskd 等
+        if (g_cfg.proc_hide && is_netunix_path(path)) {
+            int fd = orig_open(path, flags, mode);
+            if (fd >= 0) track_buffd(fd, netunix_blocklist());
+            return fd;
+        }
+        // 内存映射：剔除 zygisk/frida/xhook/memfd 等特征行
+        if (is_maps_path(path)) {
+            int fd = orig_open(path, flags, mode);
+            if (fd >= 0) track_buffd(fd, maps_blocklist());
+            return fd;
+        }
+        // 应用列表：过滤 root 管理包名
         if (g_apply_applist && is_pkglist_path(path)) {
             int fd = orig_open(path, flags, mode);
-            if (fd >= 0) {
-                std::vector<std::string> blk;
-                for (auto p = kHiddenPkgs; *p; ++p) blk.emplace_back(*p);
-                for (auto &p : g_cfg.detect_pkgs) blk.push_back(p);
-                for (auto &p : g_cfg.custom_pkgs) blk.push_back(p);
-                track_buffd(fd, blk);
-            }
+            if (fd >= 0) track_buffd(fd, applist_blocklist());
             return fd;
         }
     }
@@ -421,26 +605,30 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
     if (path) {
         if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+
+        if (g_cfg.antidebug && is_status_path(path)) {
+            int fd = orig_openat(dirfd, path, flags, mode);
+            if (fd >= 0) track_buffd(fd, {}, true);
+            return fd;
+        }
+        if (g_cfg.mount_hide && is_mounts_path(path)) {
+            int fd = orig_openat(dirfd, path, flags, mode);
+            if (fd >= 0) track_buffd(fd, mounts_blocklist());
+            return fd;
+        }
+        if (g_cfg.proc_hide && is_netunix_path(path)) {
+            int fd = orig_openat(dirfd, path, flags, mode);
+            if (fd >= 0) track_buffd(fd, netunix_blocklist());
+            return fd;
+        }
         if (is_maps_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
-            if (fd >= 0) {
-                std::vector<std::string> blk = {
-                    "libzygisk", "zygisk", "magisk", ".magisk",
-                    "/data/adb/modules/hideallroot", "Zygisk",
-                };
-                track_buffd(fd, blk);
-            }
+            if (fd >= 0) track_buffd(fd, maps_blocklist());
             return fd;
         }
         if (g_apply_applist && is_pkglist_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
-            if (fd >= 0) {
-                std::vector<std::string> blk;
-                for (auto p = kHiddenPkgs; *p; ++p) blk.emplace_back(*p);
-                for (auto &p : g_cfg.detect_pkgs) blk.push_back(p);
-                for (auto &p : g_cfg.custom_pkgs) blk.push_back(p);
-                track_buffd(fd, blk);
-            }
+            if (fd >= 0) track_buffd(fd, applist_blocklist());
             return fd;
         }
     }
@@ -475,26 +663,30 @@ static FILE *my_fopen(const char *path, const char *mode) {
     if (path) {
         if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return nullptr; }
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return nullptr; }
+
+        if (g_cfg.antidebug && is_status_path(path)) {
+            FILE *f = orig_fopen(path, mode);
+            if (f) track_buffd(fileno(f), {}, true);
+            return f;
+        }
+        if (g_cfg.mount_hide && is_mounts_path(path)) {
+            FILE *f = orig_fopen(path, mode);
+            if (f) track_buffd(fileno(f), mounts_blocklist());
+            return f;
+        }
+        if (g_cfg.proc_hide && is_netunix_path(path)) {
+            FILE *f = orig_fopen(path, mode);
+            if (f) track_buffd(fileno(f), netunix_blocklist());
+            return f;
+        }
         if (is_maps_path(path)) {
             FILE *f = orig_fopen(path, mode);
-            if (f) {
-                int fd = fileno(f);
-                std::vector<std::string> blk = {
-                    "libzygisk", "zygisk", "magisk", ".magisk",
-                    "/data/adb/modules/hideallroot", "Zygisk",
-                };
-                track_buffd(fd, blk);
-            }
+            if (f) track_buffd(fileno(f), maps_blocklist());
             return f;
         }
         if (g_apply_applist && is_pkglist_path(path)) {
             FILE *f = orig_fopen(path, mode);
-            if (f) {
-                int fd = fileno(f);
-                std::vector<std::string> blk;
-                for (auto p = kHiddenPkgs; *p; ++p) blk.emplace_back(*p);
-                track_buffd(fd, blk);
-            }
+            if (f) track_buffd(fileno(f), applist_blocklist());
             return f;
         }
     }
@@ -607,7 +799,6 @@ class HideModule : public zygisk::Module {
 public:
     void onLoad(zygisk::Api *api, JNIEnv *env) override {
         (void)api; (void)env;
-        // nothing to do until a process is specialized
     }
 
     void preAppSpecialize(zygisk::AppSpecializeArgs *args) override {
@@ -623,7 +814,6 @@ public:
 
         zygisk::Api *api = this->api;
 
-        // Register PLT hooks on every library ("." matches all).
         #define REG(repl, orig, sym) \
             api->pltHookRegister(".*", sym, (void *)repl, (void **)&orig)
 
@@ -644,8 +834,9 @@ public:
         if (g_cfg.prop_hide) {
             REG(my_sysprop_get, orig_sysprop_get, "__system_property_get");
         }
-        if (g_cfg.file_hide || applist) {
-            // maps / packages.xml content filtering needs read + close
+        // 内容级过滤（maps / status / mounts / netunix / packages.xml）需要 read + close
+        if (g_cfg.file_hide || applist || g_cfg.mount_hide ||
+            g_cfg.antidebug || g_cfg.proc_hide) {
             REG(my_read,    orig_read,    "read");
             REG(my_pread64, orig_pread64, "pread64");
             REG(my_close,   orig_close,   "close");
@@ -664,9 +855,9 @@ public:
         if (!api->pltHookCommit())
             HAR_LOG("pltHookCommit failed for %s", pkg.c_str());
         else
-            HAR_LOG("hooks active for %s (file=%d prop=%d proc=%d applist=%d adb=%d)",
+            HAR_LOG("hooks active for %s (file=%d prop=%d proc=%d applist=%d mount=%d adb=%d)",
                     pkg.c_str(), g_cfg.file_hide, g_cfg.prop_hide,
-                    g_cfg.proc_hide, applist, g_cfg.antidebug);
+                    g_cfg.proc_hide, applist, g_cfg.mount_hide, g_cfg.antidebug);
     }
 };
 
