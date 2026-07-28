@@ -8,9 +8,10 @@ LOCAL_MODULE    := zygisk
 LOCAL_SRC_FILES := main.cpp
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
 
-# Self-contained: static STL, no extra shared dependencies.
-LOCAL_LDLIBS    := -llog
-LOCAL_CFLAGS    := -std=c++17 -Wall -Wextra -O2 -fvisibility=hidden -fno-rtti -ffunction-sections -fdata-sections
+# Self-contained: static STL, only libc/libdl/liblog dependencies.
+LOCAL_LDLIBS    := -llog -ldl
+LOCAL_CFLAGS    := -std=c++17 -Wall -Wextra -O2 -fvisibility=hidden \
+                   -fno-rtti -fno-exceptions -ffunction-sections -fdata-sections
 LOCAL_CPPFLAGS  := -std=c++17
 LOCAL_ARM_MODE  := arm
 

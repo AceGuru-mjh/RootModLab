@@ -1,14 +1,13 @@
 #!/system/bin/sh
 # ============================================================================
-# HideAllRoot 开机早期脚本 (post-fs-data.sh)
+# HideAllRoot v2.0 开机早期脚本 (post-fs-data.sh)
 # ----------------------------------------------------------------------------
 # 职责（静态、全局、安全）:
 #   * 重置危险系统属性 (ro.debuggable / ro.secure / ro.build.tags ...)
 #   * 清理 Magisk 日志文件痕迹
 #   * 防砖: 检测到 /data/local/tmp/disable_hideallroot 时自动禁用本模块
 #
-# 注意: 对 /data/adb/magisk 等 Magisk 自身运行所需的目录【不做】全局 bind
-#       挂载（会破坏 magiskd）。应用层 / 进程层的深度隐藏由 Zygisk 注入完成。
+# 注意: 应用层 / 进程层的深度隐藏由 Zygisk 注入完成（含 VFS 级卸载）。
 # ============================================================================
 
 MODDIR=${0%/*}
@@ -16,14 +15,15 @@ MODID=hideallroot
 CONFIG_DIR=/data/adb/$MODID
 CONFIG=$CONFIG_DIR/config.conf
 
-# 读取开关（带默认值）。审查报告 4.4：对取值做白名单净化，剔除换行/注入字符，
-# 仅保留安全字符，避免脏配置导致意外行为。
+# 读取开关（带默认值）。对取值做白名单净化，剔除换行/注入字符，仅保留安全字符。
 cfg() {
     v=$(grep -i "^$1=" "$CONFIG" 2>/dev/null | tail -n1 | cut -d= -f2-)
     echo "$v" | tr -d '[:space:]' | tr -cd '0-9a-zA-Z_,.-'
 }
-FILE_HIDE=$(cfg ENABLE_FILE_HIDE); case "$FILE_HIDE" in 0|1) ;; *) FILE_HIDE=1 ;; esac
-PROP_HIDE=$(cfg ENABLE_PROP_HIDE); case "$PROP_HIDE" in 0|1) ;; *) PROP_HIDE=1 ;; esac
+ENABLE=$(cfg ENABLE);          [ -z "$ENABLE" ] && ENABLE=0
+FILE_HIDE=$(cfg ENABLE_FILE_HIDE);   case "$FILE_HIDE" in 0|1) ;; *) FILE_HIDE=1 ;; esac
+PROP_HIDE=$(cfg ENABLE_PROP_HIDE);   case "$PROP_HIDE" in 0|1) ;; *) PROP_HIDE=1 ;; esac
+[ "$ENABLE" = "0" ] && { FILE_HIDE=0; PROP_HIDE=0; }
 
 # ---- 防砖机制 --------------------------------------------------------------
 if [ -f /data/local/tmp/disable_hideallroot ]; then
@@ -51,9 +51,5 @@ if [ "$FILE_HIDE" = "1" ]; then
         fi
     done
 fi
-
-# ---- 3. /proc/mounts 说明 --------------------------------------------------
-# /proc/mounts 是内核只读文件，无法在用户态编辑。Magisk 已对 DenyList 应用
-# 做挂载隔离；其余 magisk 挂载痕迹由 Zygisk 注入在应用进程内屏蔽。
 
 exit 0

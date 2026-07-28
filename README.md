@@ -1,237 +1,123 @@
-# HideAllRoot Â· ä¸€é”®å…¨éšè— Rootï¼ˆZygisk ä¸€ä½“åŒ–éšè—æ¨¡å—ï¼‰
+# HideAllRoot ¡¤ Zygisk Ò»Ìå»¯ Root ºÛ¼£Òş²ØÄ£¿é£¨v2.0£©
 
-> åŸºäº **Zygisk** çš„ Magisk / KernelSU / APatch é€šç”¨ Root ç—•è¿¹éšè—æ¨¡å—ï¼Œ
-> é’ˆå¯¹ **Momo / Ruru / æ˜¥ç§‹ (SpringRoot) / RootBeer** ç­‰æ£€æµ‹å·¥å…·åšå…¨ç»´åº¦å¯¹æŠ—ï¼Œ
-> å†…ç½® **WebUI é…ç½®é¢æ¿** ä¸ **ç»ˆç«¯èœå•**ï¼Œå¯è¿­ä»£ã€å¯ç¼–è¯‘ã€åˆè§„å¼€æºã€‚
+> »ùÓÚ **Zygisk** µÄ Magisk / KernelSU / APatch Í¨ÓÃ Root ºÛ¼£Òş²ØÄ£¿é£¬
+> ²ÉÓÃ **VFS ¼¶Ğ¶ÔØ + PLT Hook Ë«ÒıÇæ**£¬Õë¶Ô **Momo / Ruru / ´ºÇï (SpringRoot) /
+> RootBeer / Play Integrity** ×öÈ«Î¬¶È¶Ô¿¹£¬ÄÚÖÃ **WebUI ÅäÖÃÃæ°å** Óë
+> **ÖÕ¶Ë²Ëµ¥**£¬¿Éµü´ú¡¢¿É±àÒë¡¢ºÏ¹æ¿ªÔ´¡£
 >
-> **å¼€å‘è€…ï¼šMJH** Â· å½“å‰ç‰ˆæœ¬ **v1.4**
+> **¿ª·¢Õß£ºRootModLab** ¡¤ µ±Ç°°æ±¾ **v2.0** (versionCode 10)
 
 ---
 
-## ä¸€ã€æ¶æ„åˆ†æ
+## Ò»¡¢¼Ü¹¹·ÖÎö
 
-| ç»´åº¦ | ä½œç”¨ç›®æ ‡ | å®ç°ä½ç½® | å…¼å®¹æ¡†æ¶ |
+| Î¬¶È | ×÷ÓÃÄ¿±ê | ÊµÏÖÎ»ÖÃ | ¼æÈİ¿ò¼Ü |
 |------|---------|---------|---------|
-| é™æ€ç—•è¿¹ | å±é™©å±æ€§é‡ç½®ã€æ—¥å¿—å±è”½ | `post-fs-data.sh` / `service.sh` | Magisk âœ… KSU âœ… APatch âœ… |
-| åŸç”Ÿ Hook | open/stat/getprop/popen/ptraceâ€¦ | `zygisk/libzygisk.so`ï¼ˆC++ï¼‰ | Magisk âœ…ï¼ˆåŸç”Ÿ Zygiskï¼‰<br>KSU/APatch âš ï¸ éœ€ **ZygiskNext** |
-| è¿›ç¨‹/åŒ…å | magiskdã€zygiskdã€lspd æšä¸¾éšè— | `zygisk/libzygisk.so` | åŒä¸Š |
-| é…ç½® UI | å¼€å…³ / ç›®æ ‡ / åŒ…å | `webroot/` + `action.sh` | KSU/APatch åŸç”Ÿ WebUI âœ…<br>Magisk éœ€ WebUI æ‰©å±• |
+| ¾²Ì¬ºÛ¼£ | Î£ÏÕÊôĞÔÖØÖÃ¡¢ÈÕÖ¾ÆÁ±Î | `post-fs-data.sh` / `service.sh` | Magisk ? KSU ? APatch ? |
+| VFS Ğ¶ÔØ | Magisk tmpfs / overlay ¹ÒÔØ | `zygisk/libzygisk.so`£¨Ó¦ÓÃË½ÓĞÃüÃû¿Õ¼ä `umount2(MNT_DETACH)`£© | Magisk ?£¨Ô­Éú Zygisk£©<br>KSU/APatch ?? Ğè **ZygiskNext** |
+| Ô­Éú Hook | open/openat/openat2/access/stat/readlink/syscall¡­ | `zygisk/libzygisk.so`£¨C++£© | Í¬ÉÏ |
+| ½ø³Ì/°üÃû | magiskd¡¢zygiskd¡¢lspd Ã¶¾ÙÒş²Ø | `zygisk/libzygisk.so` | Í¬ÉÏ |
+| ÅäÖÃ UI | ¿ª¹Ø / Ä¿±ê / °üÃû | `webui/`£¨¹¹½¨Ê±¼æÈİÉú³É `webroot/`£©+ `action.sh` | KSU/APatch Ô­Éú WebUI ?<br>Magisk Ğè WebUI À©Õ¹ |
 
-> âš ï¸ **æ¡†æ¶å·®å¼‚è¯´æ˜**ï¼šMagisk åŸç”Ÿæ”¯æŒ Zygiskï¼›KernelSU / APatch æœ¬èº«**ä¸å¸¦** Zygiskï¼Œ
-> å¿…é¡»å…ˆå®‰è£…ç¤¾åŒºæ¨¡å— **ZygiskNext** åï¼Œæœ¬æ¨¡å—çš„ `zygisk/` åŸç”Ÿåº“æ‰ä¼šåŠ è½½ã€‚
-> é™æ€éšè—ï¼ˆ`post-fs-data.sh` + `sepolicy.rule`ï¼‰åœ¨ä¸‰æ¡†æ¶ä¸‹å‡ç”Ÿæ•ˆï¼Œè¿™å°±æ˜¯
-> â€œMagisk æ”¯æŒçš„æ¨¡å— KSU å¯èƒ½ä¸æ”¯æŒâ€ çš„æœ¬è´¨â€”â€”åŸç”Ÿ Hook éƒ¨åˆ†éœ€è¦ ZygiskNext å…œåº•ã€‚
+> ?? **¿ò¼Ü²îÒìËµÃ÷**£ºMagisk Ô­ÉúÖ§³Ö Zygisk£»KernelSU / APatch ±¾Éí**²»´ø** Zygisk£¬
+> ±ØĞëÏÈ°²×°ÉçÇøÄ£¿é **ZygiskNext** ºó£¬±¾Ä£¿éµÄ `zygisk/` Ô­Éú¿â²Å»á¼ÓÔØ¡£
+> ¾²Ì¬Òş²Ø£¨`post-fs-data.sh` + `sepolicy.rule`£©ÔÚÈı¿ò¼ÜÏÂ¾ùÉúĞ§£¬¼´¡°Magisk Ö§³ÖµÄÄ£¿é
+> KSU ¿ÉÄÜ²»Ö§³Ö¡±µÄ±¾ÖÊ¡ª¡ªÔ­Éú Hook ²¿·ÖĞèÒª ZygiskNext ¶µµ×¡£
 
-### æ¨¡å—æ–‡ä»¶æ ‘
+### Ä£¿éÎÄ¼şÊ÷
 
 ```
 HideAllRoot/
-â”œâ”€â”€ module.prop            # æ¨¡å—å…ƒæ•°æ®ï¼ˆzygisk=yesï¼‰
-â”œâ”€â”€ customize.sh           # å®‰è£…é¢„å¤„ç†ï¼šç¯å¢ƒè¯†åˆ« + DenyList å…œåº•
-â”œâ”€â”€ post-fs-data.sh        # å¼€æœºæ—©æœŸï¼šå±æ€§é‡ç½® / æ—¥å¿—å±è”½ / é˜²ç –
-â”œâ”€â”€ service.sh             # å¼€æœºæ™šæœŸï¼šäºŒæ¬¡æ ¡æ­£å±æ€§
-â”œâ”€â”€ action.sh              # ç»ˆç«¯é…ç½®èœå•ï¼ˆæ— å›¾å½¢ç¯å¢ƒ UIï¼‰
-â”œâ”€â”€ sepolicy.rule          # SELinux æ”¾è¡Œè§„åˆ™
-â”œâ”€â”€ config/
-â”‚   â””â”€â”€ default.conf       # é»˜è®¤é…ç½®ï¼ˆå®‰è£…æ—¶å†™å…¥ /data/adb/hideallroot/ï¼‰
-â”œâ”€â”€ webroot/               # WebUIï¼ˆæ¶²æ€ç»ç’ƒ + éœ“è™¹ï¼‰
-â”‚   â”œâ”€â”€ index.html
-â”‚   â”œâ”€â”€ style.css
-â”‚   â””â”€â”€ main.js
-â”œâ”€â”€ zygisk/
-â”‚   â”œâ”€â”€ arm64/libzygisk.so # ç¼–è¯‘äº§ç‰©ï¼ˆ64 ä½ï¼‰
-â”‚   â””â”€â”€ arm/libzygisk.so   # ç¼–è¯‘äº§ç‰©ï¼ˆ32 ä½ï¼‰
-â”œâ”€â”€ jni/                   # æºç ï¼ˆä¸å‚ä¸æ‰“åŒ…ï¼‰
-â”‚   â”œâ”€â”€ Android.mk
-â”‚   â”œâ”€â”€ Application.mk
-â”‚   â”œâ”€â”€ include/zygisk.hpp # å…¬å¼€ API å¤´ï¼ˆå·²æŒ‰ Magisk ABI è¿˜åŸï¼‰
-â”‚   â””â”€â”€ main.cpp           # Zygisk åŸç”Ÿæ¨¡å—
-â”œâ”€â”€ build.sh               # ä¸€é”®ç¼–è¯‘ + æ‰“åŒ…
-â””â”€â”€ README.md
+©À©¤©¤ module.prop            # Ä£¿éÔªÊı¾İ£¨zygisk=yes£¬author=RootModLab£¬v2.0£©
+©À©¤©¤ customize.sh           # °²×°Ô¤´¦Àí£º»·¾³Ê¶±ğ + DenyList ¶µµ×
+©À©¤©¤ post-fs-data.sh        # ¿ª»úÔçÆÚ£ºÊôĞÔÖØÖÃ / ÈÕÖ¾ÆÁ±Î / ·À×©
+©À©¤©¤ service.sh             # ¿ª»úÍíÆÚ£º¶ş´ÎĞ£ÕıÊôĞÔ
+©À©¤©¤ action.sh              # ÖÕ¶ËÅäÖÃ²Ëµ¥£¨ÎŞÍ¼ĞÎ»·¾³ UI£©
+©À©¤©¤ sepolicy.rule          # SELinux ·ÅĞĞ¹æÔò£¨tmpfs/overlay unmount£©
+©À©¤©¤ config/
+©¦   ©¸©¤©¤ default.conf       # Ä¬ÈÏÅäÖÃ£¨°²×°Ê±Ğ´Èë /data/adb/hideallroot/£©
+©À©¤©¤ webui/                 # WebUI Ô´£¨ÒÇ±íÅÌ/ÅäÖÃ/°üÃû/ÈÕÖ¾/¹ØÓÚ ÎåÒ³£©
+©¦   ©À©¤©¤ index.html
+©¦   ©¸©¤©¤ main.js
+©À©¤©¤ zygisk/                # ±àÒë²úÎï£¨ËÄ¼Ü¹¹£©
+©¦   ©À©¤©¤ arm64/libzygisk.so
+©¦   ©À©¤©¤ arm/libzygisk.so
+©¦   ©À©¤©¤ x86/libzygisk.so
+©¦   ©¸©¤©¤ x64/libzygisk.so
+©À©¤©¤ jni/                   # Ô´Âë£¨²»²ÎÓë´ò°ü£©
+©¦   ©À©¤©¤ Android.mk
+©¦   ©À©¤©¤ Application.mk
+©¦   ©À©¤©¤ include/zygisk.hpp # ¹«¿ª API Í·£¨ÒÑ°´ Magisk ABI »¹Ô­£©
+©¦   ©¸©¤©¤ main.cpp           # Zygisk Ô­ÉúÄ£¿é£¨v2.0 Ë«ÒıÇæ£©
+©À©¤©¤ build.sh               # Ò»¼ü±àÒë + ´ò°ü£¨º¬ webroot ¼æÈİ¸±±¾£©
+©¸©¤©¤ README.md
 ```
 
 ---
 
-## äºŒã€æ£€æµ‹ç»´åº¦è¦†ç›–ï¼ˆMomo / Ruru / æ˜¥ç§‹ï¼‰
+## ¶ş¡¢¼ì²âÎ¬¶È¸²¸Ç£¨Momo / Ruru / ´ºÇï / Play Integrity£©
 
-| æ£€æµ‹ç»´åº¦ | å¯¹æŠ—æ‰‹æ®µ | å®ç° |
+| ¼ì²âÎ¬¶È | ¶Ô¿¹ÊÖ¶Î | ÊµÏÖ |
 |---------|---------|------|
-| æ–‡ä»¶å±‚ `su`/`magisk`/`lspd` è·¯å¾„ | Hook `open/openat/access/fstat/fopen/opendir/readlink/realpath` è¿”å› `ENOENT` | `main.cpp` |
-| ç³»ç»Ÿå±æ€§ `ro.magisk*` / `ro.debuggable` / `ro.build.tags` | Hook `__system_property_get` è¿”å›å‡ºå‚å€¼ | `main.cpp` |
-| è¿›ç¨‹æšä¸¾ `magiskd`/`zygiskd`/`lsposed` | æ‹¦æˆª `/proc/<pid>/{cmdline,comm,status,stat,wchan,exe}` ä¸ `/proc/<pid>` ç›®å½•è¿”å› `ENOENT` | `main.cpp` |
-| å‘½ä»¤æ‰§è¡Œ `su`/`magisk` | Hook `popen/system/execve` æ‹¦æˆª | `main.cpp` |
-| Native å±‚ `libzygisk.so` æ˜ å°„ | æ‹¦æˆª `/proc/self/maps`ã€`/proc/<pid>/maps` è¯»å–å¹¶æŠ¹é™¤ç‰¹å¾è¡Œ | `main.cpp` |
-| åº”ç”¨åˆ—è¡¨ï¼ˆæ˜¥ç§‹é‡ç‚¹ï¼‰ | è¿‡æ»¤ `/data/system/packages.xml`ã€`/data/system/packages.list` ä¸­ Magisk/LSPosed åŒ…å | `main.cpp` |
-| åè°ƒè¯•ï¼ˆRuru è‡ªé™„åŠ ï¼‰ | Hook `ptrace` é˜»æ–­ `PTRACE_ATTACH/SEIZE` åˆ°è‡ªèº« | `main.cpp` |
-| è§£é” Bootloader å±æ€§ | Hook `__system_property_get` å°† `ro.boot.verifiedbootstate`â†’`green`ã€`ro.boot.flash.locked`â†’`1`ã€`ro.oem.lockstate`â†’`locked` ç­‰ | `main.cpp` |
-| è°ƒè¯•å™¨ `TracerPid` | è¿‡æ»¤ `/proc/self/status` å°† `TracerPid` å¼ºåˆ¶å½’é›¶ | `main.cpp` |
-| æŒ‚è½½ç‚¹å¼‚å¸¸ï¼ˆMomo é‡ç‚¹ï¼‰ | è¿‡æ»¤ `/proc/mounts`ã€`/proc/self/mountinfo` ä¸­ magisk/ksu/apatch/zygisk æŒ‚è½½è¡Œ | `main.cpp` |
-| å®ˆæŠ¤è¿›ç¨‹ socket | è¿‡æ»¤ `/proc/net/unix` ä¸­ `magiskd`/`zygiskd`/`ksud`/`apd` ç­‰ socket | `main.cpp` |
-| æ³¨å…¥æ¡†æ¶å†…å­˜ç‰¹å¾ | è¿‡æ»¤ `/proc/self/maps` ä¸­ `frida`/`xhook`/`memfd:`/`zygisk_module_entry` ç­‰è¡Œï¼ˆå« Ruru çš„ /memfd:jit-cache æ‰«æï¼‰ | `main.cpp` |
-| æ³¨å…¥åº“è·¯å¾„ï¼ˆ`dladdr`ï¼‰ | Hook `dladdr` å‘½ä¸­æ³¨å…¥åº“æ—¶è¿”å› 0ï¼ˆä¼ªè£…â€œæ— æ³•è§£æâ€ï¼Œè€Œéè¿”å›ç©ºæ–‡ä»¶åæš´éœ² hookï¼‰ | `main.cpp` |
-| fd ç¬¦å·é“¾æ¥ | éšè— `/proc/self/fd` ä¸­æŒ‡å‘ magisk/zygisk çš„é“¾æ¥ï¼ˆä¼ªè£…ä¸ºå¤±æ•ˆï¼‰ | `main.cpp` |
-| å†…æ ¸æ¨¡å—åˆ—è¡¨ | è¿‡æ»¤ `/proc/modules` ä¸­ `magisk`/`zygisk`/`ksu`/`apatch`/`kernelsu` ç­‰è¡Œ | `main.cpp` |
-| SELinux ä¸Šä¸‹æ–‡æ³„éœ² | è¿‡æ»¤ `/proc/<pid>/attr/current`ï¼Œå°†å« `magisk`/`zygisk`/`su:`/`ksu` çš„ä¸Šä¸‹æ–‡ä¼ªè£…ä¸º `u:r:untrusted_app:s0` | `main.cpp` |
-| æ–°ç‰ˆæ–‡ä»¶/çŠ¶æ€æ¥å£ | Hook `openat2` / `statx`ï¼Œé˜»æ–­å¯¹éšè—è·¯å¾„çš„æ‰“å¼€ä¸ stat | `main.cpp` |
-| ç›®å½•æšä¸¾ | Hook `readdir`/`readdir64`ï¼Œè·³è¿‡ `magisk`/`zygisk`/`lspd`/æ¨¡å—ç›®å½•ç­‰æ¡ç›® | `main.cpp` |
-| æ–‡ä»¶æ¸¸æ ‡åŒæ­¥ | Hook `lseek`/`lseek64` åŒæ­¥ç¼“å†²è¯»æ¸¸æ ‡ï¼Œé¿å… `read()`+`lseek`+`read()` å†…å®¹é”™ä½ | `main.cpp` |
-| build.prop ç›´è¯» | è¿‡æ»¤ `/system/build.prop` ç­‰ä¸­ `test-keys`/`userdebug`/`orange` è¡Œï¼ˆä¸å±æ€§ Hook äº’è¡¥ï¼‰ | `main.cpp` |
-| æ‰©å……çš„ Root æ¡†æ¶ / åº”ç”¨ | éšè—åŒ…åä¸è·¯å¾„è¦†ç›– Magisk å…¨åˆ†æ”¯ï¼ˆKitsuneï¼‰ã€KernelSUã€APatchã€LSPosedã€Riruã€TaiChiã€EdXposedã€SuperSUã€Shamikoã€Hide-My-Applistã€BusyBox ç­‰ | `main.cpp` |
-| DenyList å…œåº• | å®‰è£…æ—¶æŠŠæ£€æµ‹å·¥å…·åŠ å…¥ Magisk DenyListï¼ˆä¸å¼ºåˆ¶ï¼Œç”±æ¨¡å—æ¥ç®¡ï¼‰ | `customize.sh` |
+| ÎÄ¼ş²ã `su`/`magisk`/`ksu`/`apatch`/`zygisk`/`lspd` | PLT Hook + Ö±½Ó `syscall()` À¹½Ø `open/openat/openat2/access/faccessat/faccessat2`£¬**¾«È·Ç°×º + ´Ê±ß½ç**Æ¥Åä£¨ĞŞ¸´ v1.x `strstr` ÎóÉ±£©£¬ÃüÖĞ·µ»Ø `ENOENT` | `main.cpp` |
+| ÔªÊı¾İ `stat/lstat/fstatat/statx/__xstat/__lxstat/__fxstatat` + `readlink/readlinkat` | Í¬ÉÏÂ·¾¶Æ¥Åä£»¸²¸Ç `openat2`/`statx`/`faccessat2` µÈĞÂ°æ½Ó¿Ú | `main.cpp` |
+| **VFS ¼¶Ğ¶ÔØ** | `preAppSpecialize` ½âÎö `/proc/self/mountinfo`£¬ÔÚÓ¦ÓÃË½ÓĞÃüÃû¿Õ¼ä `umount2(MNT_DETACH)` Magisk tmpfs / overlay ¹ÒÔØ£¨ÕæĞ¶ÔØ£¬·Ç½ö ENOENT£© | `main.cpp` |
+| ÏµÍ³ÊôĞÔ `ro.magisk*` / `ro.ksu*` / `ro.apatch*` / `ro.debuggable` / `ro.build.tags` | Hook `__system_property_get` ·µ»Ø³ö³§Öµ£»Hook `__system_property_find` ¶ÔÒş²ØÊôĞÔ·µ»Ø `nullptr` | `main.cpp` |
+| ½ø³ÌÃ¶¾Ù `magiskd`/`zygiskd`/`ksud`/`apd` | `readdir/readdir64` ¹ıÂË + `connect()` UNIX socket À¹½Ø + `kill()` À¹½Ø + PID¡úcomm »º´æ(TTL) | `main.cpp` |
+| Native ²ã `libzygisk.so` / `frida` / `gum` / `xhook` / `memfd:` | ¹ıÂË `/proc/self/maps`¡¢`/proc/<pid>/maps` ÌØÕ÷ĞĞ + `prctl(PR_SET_VMA_ANON_NAME)` ÄäÃûÓ³ÉäÖØÃüÃû·ÀÓù | `main.cpp` |
+| Ó¦ÓÃÁĞ±í£¨´ºÇïÖØµã£© | ¹ıÂË `/data/system/packages.xml`¡¢`/data/system/packages.list` ÖĞ root ¹ÜÀíÆ÷°üÃû | `main.cpp` |
+| ·´µ÷ÊÔ£¨Ruru ×Ô¸½¼Ó£© | Hook `ptrace` ×è¶Ï `PTRACE_ATTACH/SEIZE` µ½×ÔÉí£»¹ıÂË `/proc/self/status` ½« `TracerPid` Ç¿ÖÆ¹éÁã | `main.cpp` |
+| »·¾³±äÁ¿ / PATH | `preAppSpecialize` ÇåÏ´ `ZYGISK_NATIVE`/`MAGISK`/`KSU`/`APATCH` µÈ±äÁ¿²¢¹ıÂË PATH | `main.cpp` |
+| SELinux ÉÏÏÂÎÄĞ¹Â¶ | ¹ıÂË `/proc/self/attr/current` Óë `/proc/<pid>/attr/current`£¬½«º¬ `magisk`/`zygisk`/`su:`/`ksu` µÄÉÏÏÂÎÄÎ±×°Îª `u:r:untrusted_app:s0` | `main.cpp` |
+| ¹ÒÔØµãÒì³££¨Momo ÖØµã£© | ¹ıÂË `/proc/mounts`¡¢`/proc/self/mountinfo` ÖĞ magisk/ksu/apatch/zygisk ¹ÒÔØĞĞ | `main.cpp` |
+| ÊØ»¤½ø³Ì socket | ¹ıÂË `/proc/net/unix` ÖĞ `magiskd`/`zygiskd`/`ksud`/`apd` µÈ socket | `main.cpp` |
+| ×¢Èë¿âÂ·¾¶£¨`dladdr`£© | Hook `dladdr` ÃüÖĞ×¢Èë¿âÊ±·µ»Ø 0£¨Î±×°¡°ÎŞ·¨½âÎö¡±£¬¶ø·Ç·µ»Ø¿ÕÎÄ¼şÃû±©Â¶ hook£© | `main.cpp` |
+| ÄÚºËÄ£¿éÁĞ±í | ¹ıÂË `/proc/modules` ÖĞ `magisk`/`zygisk`/`ksu`/`apatch`/`kernelsu` µÈĞĞ | `main.cpp` |
+| ÅäÖÃÇı¶¯ | È«²¿ĞĞÎªÓÉ `/data/adb/hideallroot/config.conf` ¾ö¶¨£¬WebUI / ÖÕ¶Ë²Ëµ¥¼´Ê±µ÷Õû£¬ÎŞĞèÖØ±àÒë | È«²¿ |
 
 ---
 
-## ä¸‰ã€åŸç”Ÿæ¨¡å—è®¾è®¡è¦ç‚¹ï¼ˆ`jni/main.cpp`ï¼‰
+## Èı¡¢ÅäÖÃ¼ü£¨v2.0£©
 
-1. **é…ç½®é©±åŠ¨**ï¼šæ¯æ¬¡åº”ç”¨ `preAppSpecialize` è¯»å– `/data/adb/hideallroot/config.conf`ï¼Œ
-   æ‰€æœ‰å¼€å…³ã€ç›®æ ‡æ¨¡å¼ã€åŒ…ååˆ—è¡¨å‡å¯ç» WebUI çƒ­æ›´æ–°ï¼ˆå¯¹æ–°å¯åŠ¨çš„åº”ç”¨ç«‹å³ç”Ÿæ•ˆï¼‰ã€‚
-2. **æŒ‰è¿›ç¨‹é¶å‘**ï¼š`TARGET_MODE=0` éšè—å…¨éƒ¨åº”ç”¨ï¼›`=1` ä»…æ£€æµ‹å·¥å…·ï¼›`=2` ä»…è‡ªå®šä¹‰åŒ…åã€‚
-   éç›®æ ‡è¿›ç¨‹å®Œå…¨ä¸æŒ‚é’©ï¼Œé›¶æ€§èƒ½æŸè€—ã€é›¶å‰¯ä½œç”¨ã€‚
-3. **PLT æ‰¹é‡æŒ‚é’©**ï¼šé€šè¿‡ `api->pltHookRegister(".*", sym, ...)` å¯¹æ‰€æœ‰å·²åŠ è½½åº“åš GOT æŒ‚é’©ï¼Œ
-   è¦†ç›–åº”ç”¨åŠå…¶ä¾èµ–åº“å¯¹ libc çš„å…¨éƒ¨è°ƒç”¨ã€‚
-4. **maps / åŒ…åˆ—è¡¨ç¼“å†²è¿‡æ»¤**ï¼šå¯¹ `/proc/*/maps` ä¸ `packages.xml` åšæ•´æ–‡ä»¶è¯»å–â†’æŒ‰ç‰¹å¾è¡Œè¿‡æ»¤â†’
-   ç» `read`/`pread64` å–‚å›ï¼Œåšåˆ°â€œå†…å®¹çº§â€æŠ¹é™¤è€Œéç®€å•æ‹’ç»ã€‚
-5. **é˜²é€’å½’**ï¼šHook å†…éƒ¨ä¸€å¾‹é€šè¿‡æ•è·çš„ `orig_*` åŸç‰ˆå‡½æ•°è®¿é—®æ–‡ä»¶/å±æ€§ï¼Œæ—¥å¿—ä»…ç”¨ `logd`ï¼Œ
-   ç»ä¸åœ¨ Hook è·¯å¾„å†…è°ƒç”¨è¢« Hook çš„å‡½æ•°ã€‚
-6. **é˜²ç –**ï¼š`post-fs-data.sh` æ£€æµ‹ `/data/local/tmp/disable_hideallroot` å³è‡ªåŠ¨ `touch disable`ã€‚
+ÅäÖÃÎÄ¼şÎ»ÓÚ `/data/adb/hideallroot/config.conf`£¬ËùÓĞ¿ª¹Ø `1=¿ª 0=¹Ø`£º
 
-> ABI è¯´æ˜ï¼š`jni/include/zygisk.hpp` å·²æŒ‰ Magisk å†…éƒ¨ `api_abi_v2` å†…å­˜å¸ƒå±€ç²¾ç¡®è¿˜åŸï¼Œ
-> `Api` ç±»ä¸¥æ ¼å¯¹é½ `impl â†’ registerModule â†’ 8 ä¸ªå›è°ƒ` çš„åç§»ï¼Œç¼–è¯‘å³å¯æ­£ç¡®é“¾æ¥åŠ è½½å™¨ã€‚
-
----
-
-## å››ã€æ„å»ºä¸æ‰“åŒ…
-
-### è¦æ±‚
-- Android NDK **r25+**ï¼ˆ`ANDROID_NDK_HOME` æŒ‡å‘ NDKï¼Œæˆ–ç½®äº `/opt/android-ndk`ï¼‰
-- å·²å®‰è£… `zip`
-
-### ä¸€é”®æ„å»º
-```bash
-cd HideAllRoot
-bash build.sh
-# äº§ç‰©: HideAllRoot.zipï¼ˆå¯ç›´æ¥åˆ·å…¥ï¼‰
-# åŒæ—¶ç”Ÿæˆ zygisk/arm64/libzygisk.so ä¸ zygisk/arm/libzygisk.so
-```
-`build.sh` æµç¨‹ï¼šâ‘  `ndk-build` ç¼–è¯‘ `arm64-v8a` + `armeabi-v7a` â†’
-â‘¡ æ‹·è´ `.so` åˆ° `zygisk/<abi>/` â†’ â‘¢ æ’é™¤ `jni/`ã€`out/` ç­‰æºç ä¸ä¸­é—´äº§ç‰©æ‰“åŒ…ä¸º zipã€‚
+| ¼ü | º¬Òå |
+|----|------|
+| `ENABLE` | ×Ü¿ª¹Ø£¬¹Ø±ÕºóÒ»ÇĞÒş²ØÍ£Ö¹ |
+| `ENABLE_FILE_HIDE` | ÎÄ¼ş²ãÒş²Ø£¨open/openat/openat2/access/stat/readlink£© |
+| `ENABLE_PROP_HIDE` | ÊôĞÔÒş²Ø£¨`__system_property_get` / `__system_property_find`£© |
+| `ENABLE_PROC_HIDE` | ½ø³ÌÒş²Ø£¨readdir ¹ıÂË + connect + kill + PID »º´æ£© |
+| `ENABLE_MAPS_HIDE` | `/proc/<pid>/maps` ¹ıÂË + ÄäÃûÓ³ÉäÖØÃüÃû·ÀÓù |
+| `ENABLE_MOUNT_HIDE` | `/proc/mounts` Óë `/proc/self/mountinfo` ¹ıÂË |
+| `ENABLE_SOCKET_HIDE` | `/proc/net/unix` ÊØ»¤½ø³Ì socket ¹ıÂË |
+| `ENABLE_DEBUG_HIDE` | `/proc/self/status` TracerPid ÇåÁã + ×Ô ptrace À¹½Ø |
+| `ENABLE_UNMOUNT` | VFS ¼¶Ğ¶ÔØ Magisk tmpfs / overlay |
+| `ENABLE_ENV_CLEAN` | »·¾³±äÁ¿Óë PATH ÇåÏ´ |
+| `ENABLE_ZYGISK_CLEAN` | ¼¤½øÇåÀí zygisk/frida/gum/xhook µÄ maps ºÛ¼£ |
+| `TARGET_MODE` | `0`=È«²¿Ó¦ÓÃ `1`=½ö¼ì²â¹¤¾ß `2`=½ö×Ô¶¨Òå°üÃû |
+| `TARGET_PKGS` | ¼ì²â¹¤¾ß°üÃû£¨TARGET_MODE=1£¬¶ººÅ·Ö¸ô£© |
+| `CUSTOM_PKGS` | ×Ô¶¨Òå°üÃû£¨TARGET_MODE=2£¬¶ººÅ·Ö¸ô£© |
 
 ---
 
-## äº”ã€åˆ·å…¥ä¸æµ‹è¯•
-
-1. **åˆ·å…¥**ï¼šMagisk / KSU / APatch ç®¡ç†å™¨ â†’ æ¨¡å— â†’ ä»æœ¬åœ°å®‰è£… `HideAllRoot.zip` â†’ é‡å¯ã€‚
-   - KSU / APatch ç”¨æˆ·ï¼š**å…ˆå®‰è£… ZygiskNext**ï¼Œå¦åˆ™åŸç”Ÿ Hook ä¸ç”Ÿæ•ˆã€‚
-2. **é…ç½®**ï¼šç®¡ç†å™¨å†…æ‰“å¼€æœ¬æ¨¡å— â†’ WebUI é¢æ¿ï¼ˆæˆ–ç»ˆç«¯ `action.sh` èœå•ï¼‰ã€‚
-3. **æµ‹è¯•**ï¼ˆçº¯å‡€ç¯å¢ƒï¼Œå‹¿å åŠ å…¶å®ƒä¼˜åŒ–/éšè—æ¨¡å—ä»¥å…ç•™ç—•ï¼‰ï¼š
-   - æ‰“å¼€ **Momo**ï¼šç¯å¢ƒåˆ†åŒºæ— å¼‚å¸¸ã€æ—  Magisk/Su ç—•è¿¹ã€‚
-   - æ‰“å¼€ **Ruru**ï¼šå…¨éƒ¨æ£€æµ‹é¡¹ Passï¼Œä¸” `/proc/self/maps` ä¸­æ—  `libzygisk` å­—æ ·ã€‚
-   - æ‰“å¼€ **æ˜¥ç§‹ (SpringRoot)**ï¼šæ—  Rootã€æ—  Magisk/LSPosed åŒ…åã€‚
-4. **è‡ªæ£€**ï¼šWebUIã€Œè¿è¡Œè‡ªæ£€ã€ç›´æ¥å›æ˜¾ `ro.debuggable`ã€`ro.build.tags`ã€
-   `su` è·¯å¾„ã€`ro.magisk.version` ç­‰å…³é”®é¡¹ã€‚
-
----
-
-## å…­ã€ä¸“å®¶å»ºè®® / æ’é”™
-
-- **SELinux**ï¼šè‹¥æŸ ROM æŠ¥ `avc: denied` å¯¼è‡´æ³¨å…¥å¤±è´¥ï¼Œ`dmesg | grep 'avc: denied'`
-  å®šä½åæŠŠå¯¹åº” `allow` è§„åˆ™è¿½åŠ åˆ° `sepolicy.rule` é‡å¯å³å¯ã€‚
-- **Android 14+ ä¸¥æ ¼æœºå‹**ï¼šéƒ¨åˆ† OEM TEE / SELinux å¼ºæ ¡éªŒä»å¯èƒ½æ‹¦æˆªï¼Œå±ç¡¬ä»¶/å›ºä»¶å±‚é™åˆ¶ï¼Œ
-  éæ¨¡å—å¯å®Œå…¨ç»•è¿‡â€”â€”å±é¢„æœŸï¼ˆæ£€æµ‹å·¥å…·æŒç»­è¿­ä»£ï¼Œä¸å­˜åœ¨æ°¸ä¹… 100% æ–¹æ¡ˆï¼‰ã€‚
-- **è°ƒè¯•æ—¥å¿—**ï¼šåŸç”Ÿå±‚æ—¥å¿— tag ä¸º `HideAllRoot`ï¼Œ`logcat -s HideAllRoot` è§‚å¯ŸæŒ‚é’©æ˜¯å¦ç”Ÿæ•ˆã€‚
-- **å›é€€**ï¼šåˆ›å»º `/data/local/tmp/disable_hideallroot` åé‡å¯å³è‡ªåŠ¨åœç”¨æ¨¡å—ï¼›
-  æˆ–ç®¡ç†å™¨ä¸­ç›´æ¥ç¦ç”¨æœ¬æ¨¡å—ã€‚
-- **æœ€å°åŒ–ç—•è¿¹**ï¼šæµ‹è¯•æ—¶åªä¿ç•™æœ¬æ¨¡å—ï¼Œé¿å…ä¸ Shamiko / Hide My App List ç­‰å åŠ äº§ç”Ÿå†²çªç‰¹å¾ã€‚
-
----
-
-## ä¸ƒã€åˆè§„ä¸è®¸å¯
-
-æœ¬æ¨¡å—ä»…ç”¨äº**è®¾å¤‡æ‰€æœ‰è€…å¯¹è‡ªèº«è®¾å¤‡çš„éšç§ä¸å¯æ§æ€§ç®¡ç†**ï¼Œæ‰€æœ‰ä»£ç å¼€æºã€å¯åœ¨æœ¬åœ°å®¡æŸ¥ç¼–è¯‘ã€‚
-è¯·å‹¿ç”¨äºè§„é¿ä»˜è´¹å†…å®¹ã€é‡‘èé£æ§ä½œå¼Šç­‰è¿åæœåŠ¡æ¡æ¬¾çš„åœºæ™¯ã€‚
-
----
-
-# HideAllRoot (English)
-
-> A **Zygisk**-based, all-in-one root-trace hiding module for **Magisk / KernelSU / APatch**,
-> built to defeat the **Momo / Ruru / SpringRoot (æ˜¥ç§‹) / RootBeer** detection tools across every dimension.
-> Ships with a **WebUI config panel** and a **terminal menu**. Iterative, compilable, and open-source.
->
-> **Developer: MJH** Â· **v1.4**
-
-## Architecture
-
-| Layer | Target | Location | Frameworks |
-|-------|--------|----------|------------|
-| Static traces | reset dangerous props, hide logs | `post-fs-data.sh` / `service.sh` | Magisk âœ… KSU âœ… APatch âœ… |
-| Native hooks | open/stat/getprop/popen/ptraceâ€¦ | `zygisk/libzygisk.so` (C++) | Magisk âœ… (native Zygisk)<br>KSU/APatch âš ï¸ needs **ZygiskNext** |
-| Process/package | hide magiskd/zygiskd/lspd enumeration | `zygisk/libzygisk.so` | same as above |
-| Config UI | toggles / targets / packages | `webroot/` + `action.sh` | KSU/APatch native WebUI âœ…<br>Magisk needs a WebUI add-on |
-
-> **Framework note:** Magisk supports Zygisk natively. KernelSU / APatch do **not** ship Zygisk â€”
-> install the community module **ZygiskNext** first, otherwise the `zygisk/` native library will not load.
-> The static hiding (`post-fs-data.sh` + `sepolicy.rule`) works on all three frameworks â€” that is exactly
-> the meaning of "a Magisk-supported module may not be supported by KSU": the native-hook part needs ZygiskNext.
-
-## Detection coverage (Momo / Ruru / SpringRoot)
-
-| Dimension | Countermeasure | Implementation |
-|-----------|----------------|----------------|
-| File layer `su`/`magisk`/`lspd` paths | Hook open/openat/access/fstat/fopen/opendir/readlink/realpath â†’ `ENOENT` | `main.cpp` |
-| System props `ro.magisk*` / `ro.debuggable` / `ro.build.tags` | Hook `__system_property_get` â†’ factory values | `main.cpp` |
-| Process enum `magiskd`/`zygiskd`/`lsposed` | Block `/proc/<pid>/{cmdline,comm,status,stat,wchan,exe}` & `/proc/<pid>` dir â†’ `ENOENT` | `main.cpp` |
-| Command exec `su`/`magisk` | Hook popen/system/execve | `main.cpp` |
-| Native `libzygisk.so` mapping | Filter `/proc/self/maps` & `/proc/<pid>/maps` line-by-line | `main.cpp` |
-| App list (SpringRoot focus) | Filter `/data/system/packages.xml` / `packages.list` for Magisk/LSPosed/KSU/APatch packages | `main.cpp` |
-| Anti-debug (Ruru self-attach) | Hook `ptrace` to block `PTRACE_ATTACH/SEIZE` on self | `main.cpp` |
-| Bootloader-unlock props | Hook `__system_property_get`: `ro.boot.verifiedbootstate`â†’`green`, `ro.boot.flash.locked`â†’`1`, `ro.oem.lockstate`â†’`locked`, etc. | `main.cpp` |
-| Debugger `TracerPid` | Filter `/proc/self/status`, force `TracerPid` to 0 | `main.cpp` |
-| Mount anomalies (Momo focus) | Filter `magisk`/`ksu`/`apatch`/`zygisk` lines from `/proc/mounts` & `/proc/self/mountinfo` | `main.cpp` |
-| Daemon sockets | Filter `magiskd`/`zygiskd`/`ksud`/`apd` from `/proc/net/unix` | `main.cpp` |
-| Injection memory | Filter `frida`/`xhook`/`memfd:`/`zygisk_module_entry` lines from `/proc/self/maps` (incl. Ruru's /memfd:jit-cache scan) | `main.cpp` |
-| Injection lib paths (`dladdr`) | Hook `dladdr` to strip `magisk`/`zygisk`/`frida`/`lsplant`/`xhook` library paths (Momo/Ruru probe via dladdr) | `main.cpp` |
-| fd symlinks | Hide `/proc/self/fd` symlinks pointing at magisk/zygisk (pretend broken) | `main.cpp` |
-| Kernel module list | Filter `magisk`/`zygisk`/`ksu`/`apatch`/`kernelsu` lines from `/proc/modules` | `main.cpp` |
-| SELinux context leak | Filter `/proc/<pid>/attr/current`, rewrite contexts containing `magisk`/`zygisk`/`su:`/`ksu` to `u:r:untrusted_app:s0` | `main.cpp` |
-| New file/stat APIs | Hook `openat2` / `statx` to block opening/stat'ing hidden paths | `main.cpp` |
-| Directory enumeration | Hook `readdir`/`readdir64` to skip `magisk`/`zygisk`/`lspd`/module-dir entries | `main.cpp` |
-| File cursor sync | Hook `lseek`/`lseek64` to keep the buffered read cursor in sync (no desync on read()+lseek+read()) | `main.cpp` |
-| build.prop direct read | Filter `test-keys`/`userdebug`/`orange` lines from `/system/build.prop` etc. (complements property hook) | `main.cpp` |
-| Expanded frameworks/apps | Hide packages & paths for Magisk (all forks), KernelSU, APatch, LSPosed, Riru, TaiChi, EdXposed, SuperSU, Shamiko, Hide-My-Applist, BusyBoxâ€¦ | `main.cpp` |
-| DenyList fallback | Add detectors to Magisk DenyList at install (optional, module takes over) | `customize.sh` |
-
-## Build & Package
-
-Requirements: Android NDK **r25+** (`ANDROID_NDK_HOME`, or `/opt/android-ndk`), and `zip`.
+## ËÄ¡¢±àÒëÓë·¢²¼
 
 ```bash
-cd HideAllRoot
+# ±¾µØ±àÒëËÄ¼Ü¹¹²¢´ò°ü HideAllRoot.zip
+export ANDROID_NDK_HOME=/opt/android-ndk   # »ò°Ñ NDK ·Åµ½ /opt/android-ndk
 bash build.sh
-# output: HideAllRoot.zip (flashable)
-# also produces zygisk/arm64/libzygisk.so and zygisk/arm/libzygisk.so
 ```
 
-`build.sh`: â‘  `ndk-build` for `arm64-v8a` + `armeabi-v7a` â†’
-â‘¡ copy `.so` into `zygisk/<abi>/` â†’ â‘¢ package into zip excluding `jni/`, `out/`, etc.
+CI£¨`.github/workflows/build.yml`£©Ê¹ÓÃ `nttld/setup-ndk@v1`£¨r26d£©×Ô¶¯±àÒë£»
+ÍÆËÍĞÎÈç `v*` µÄ tag »á×Ô¶¯´´½¨ GitHub Release ²¢¸½ÉÏ `HideAllRoot.zip`¡£
 
-> **CI:** Pushing to `main` builds the zip as a downloadable **artifact**; pushing a `v*` tag
-> creates a GitHub **Release** automatically (see `.github/workflows/build.yml`).
+> ×¢Òâ£º±¾Ä£¿é¿ÌÒâ**Î´**Ê¹ÓÃ `setOption(DLCLOSE_MODULE_LIBRARY)`¡ª¡ªPLT Hook Óë
+> Ğ¶ÔØÄ£¿é¿â»áÁôÏÂĞü¿Õº¯ÊıÖ¸Õëµ¼ÖÂÄ¿±ê½ø³Ì±ÀÀ££»`.so` Í¨¹ı `/proc/self/maps`
+> ĞĞ¹ıÂËÒş²Ø£¬¹¦ÄÜµÈ¼ÛÇÒ¸ü°²È«¡£
 
-## Flash & Test
+---
 
-1. Flash `HideAllRoot.zip` via Magisk / KSU / APatch manager â†’ reboot.
-   KSU / APatch users: **install ZygiskNext first**, or native hooks will not load.
-2. Configure via the manager's WebUI panel (or terminal `action.sh` menu).
-3. Test in a clean environment (no other hiding modules):
-   - **Momo**: no Magisk/Su traces in the environment section.
-   - **Ruru**: all checks pass, and `/proc/self/maps` shows no `libzygisk`.
-   - **SpringRoot (æ˜¥ç§‹)**: no Root, no Magisk/LSPosed packages.
-4. Self-check: the WebUI "Run self-check" echoes `ro.debuggable`, `ro.build.tags`,
-   the `su` path, and `ro.magisk.version`.
+## Îå¡¢ºÏ¹æÓëÃâÔğ
 
-## Compliance & License
-
-This module is intended only for **device owners managing the privacy and controllability of their own
-devices**. All code is open-source and can be audited and compiled locally. Do not use it to bypass paid
-content, financial-risk-control cheating, or other ToS-violating scenarios.
+±¾ÏîÄ¿Îª¿ªÔ´°²È«ÑĞ¾¿¹¤¾ß£¬×ñÑ­ Magisk Í¨ÓÃÄ£¿é¹æ·¶¡£Çë½öÔÚÄãÓµÓĞ»ò»ñÊÚÈ¨µÄÉè±¸ÉÏÊ¹ÓÃ£¬
+×ñÊØËùÔÚµØÇø·¨ÂÉ·¨¹æ¡£Ä£¿é²»ĞŞ¸ÄÏµÍ³·ÖÇø¡¢²»Ö²ÈëºóÃÅ£¬Éî¶ÈÒş²Ø¾ùÔÚÓ¦ÓÃ½ø³ÌÃüÃû¿Õ¼äÄÚÍê³É¡£

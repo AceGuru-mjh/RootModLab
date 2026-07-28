@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # ============================================================================
-# HideAllRoot 安装脚本 (customize.sh)
+# HideAllRoot v2.0 安装脚本 (customize.sh)
 # 运行环境: Magisk / KernelSU / APatch 安装框架
 # ----------------------------------------------------------------------------
 # 职责:
@@ -12,7 +12,7 @@
 MODID=hideallroot
 CONFIG_DIR=/data/adb/$MODID
 
-ui_print "- 正在安装 HideAllRoot 一体化隐藏模块 ..."
+ui_print "- 正在安装 HideAllRoot v2.0 一体化隐藏模块 ..."
 
 # ---- 1. 框架识别 ----------------------------------------------------------
 if [ -n "$KSU" ]; then
@@ -33,8 +33,8 @@ chown root:root "$CONFIG_DIR/config.conf" 2>/dev/null || true
 chmod 0644 "$CONFIG_DIR/config.conf" 2>/dev/null || true
 
 # ---- 3. DenyList 兜底（仅 Magisk）----------------------------------------
-# 说明: 关闭“强制 DenyList”，把检测工具加入列表但不强制隔离，
-#       真正的隐藏交给本模块的 Zygisk 注入完成（交给模块接管）。
+# 关闭“强制 DenyList”，把检测工具加入列表但不强制隔离，
+# 真正的隐藏交给本模块的 Zygisk 注入完成（由模块接管）。
 if [ -z "$KSU" ] && [ -z "$APATCH" ] && command -v magisk >/dev/null 2>&1; then
     magisk settings set enforce_denylist false 2>/dev/null || true
     for pkg in com.xtremelabs.momo com.springroot.ruru com.chunqiu.check; do

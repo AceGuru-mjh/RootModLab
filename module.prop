@@ -1,8 +1,9 @@
 id=hideallroot
-name=一键全隐藏 Root (HideAllRoot)
-version=1.4
-versionCode=5
-author=MJH
-description=基于 Zygisk 的一体化 Root 痕迹隐藏模块（开发者 MJH），对抗 Momo / Ruru / 春秋(SpringRoot) / RootBeer 检测；含 WebUI 配置面板。
+name=HideAllRoot
+version=2.0
+versionCode=10
+author=RootModLab
+description=基于 Zygisk 的 v2.0 一体化 Root 痕迹隐藏模块（开发者 RootModLab）。VFS 级卸载 + PLT Hook 双引擎，对抗 Momo / Ruru / 春秋(SpringRoot) / RootBeer / Play Integrity；含 WebUI 配置面板。
 zygisk=yes
 support=https://github.com/AceGuru-mjh/RootModLab
+updateJson=

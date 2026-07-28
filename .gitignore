@@ -2,6 +2,7 @@
 out/
 obj/
 libs/
+webroot/
 
 # 本地日志
 *.log

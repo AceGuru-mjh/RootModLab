@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>HideAllRoot v2.0</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#181b22; --panel2:#1f232c; --line:#2a2f3a;
+    --txt:#e6e9ef; --muted:#8b93a3; --accent:#4f8cff; --accent2:#22c55e;
+    --danger:#ef4444; --warn:#f59e0b; --radius:14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;-webkit-text-size-adjust:100%}
+  .app{max-width:880px;margin:0 auto;padding:16px 14px 96px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  header .title{font-size:19px;font-weight:700;letter-spacing:.3px}
+  header .sub{font-size:11px;color:var(--muted)}
+  .tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);
+    border-top:1px solid var(--line);z-index:20}
+  .tabs .tab{flex:1;text-align:center;padding:9px 2px;font-size:11px;color:var(--muted);
+    cursor:pointer;border:0;background:transparent}
+  .tabs .tab .ic{font-size:18px;display:block;margin-bottom:2px}
+  .tabs .tab.active{color:var(--accent)}
+  .page{display:none;animation:fade .18s ease}
+  .page.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px;margin-bottom:12px}
+  .card h3{margin:0 0 10px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;
+    border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .row .label{font-size:13px}
+  .row .desc{font-size:11px;color:var(--muted);margin-top:2px;max-width:78%}
+  /* switch */
+  .sw{position:relative;width:46px;height:26px;flex:0 0 auto}
+  .sw input{display:none}
+  .sw .slider{position:absolute;inset:0;background:var(--panel2);border:1px solid var(--line);
+    border-radius:20px;transition:.2s;cursor:pointer}
+  .sw .slider:before{content:"";position:absolute;width:20px;height:20px;left:3px;top:2px;
+    background:#6b7280;border-radius:50%;transition:.2s}
+  .sw input:checked + .slider{background:var(--accent)}
+  .sw input:checked + .slider:before{transform:translateX(20px);background:#fff}
+  .btn{display:inline-block;padding:9px 14px;border-radius:10px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--txt);font-size:13px;cursor:pointer;text-align:center}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.green{background:var(--accent2);border-color:var(--accent2);color:#04210f;font-weight:600}
+  .btn.block{width:100%;margin-top:6px}
+  .btn:active{opacity:.8}
+  textarea,input.txt{width:100%;background:var(--panel2);border:1px solid var(--line);
+    color:var(--txt);border-radius:10px;padding:9px;font-size:13px;font-family:ui-monospace,Menlo,monospace}
+  textarea{min-height:96px;resize:vertical}
+  .pill{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;
+    background:var(--panel2);border:1px solid var(--line);margin:3px 4px 3px 0}
+  .pill.on{background:rgba(34,197,94,.15);border-color:var(--accent2);color:var(--accent2)}
+  .stat{display:flex;gap:10px;flex-wrap:wrap}
+  .stat .box{flex:1;min-width:120px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:12px;padding:12px}
+  .stat .box .n{font-size:22px;font-weight:700}
+  .stat .box .t{font-size:11px;color:var(--muted);margin-top:3px}
+  .log{background:#0b0d11;border:1px solid var(--line);border-radius:10px;padding:10px;
+    font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#b9e0c0;
+    white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto}
+  .badge{font-size:10px;padding:2px 7px;border-radius:6px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted)}
+  .badge.ok{color:var(--accent2);border-color:var(--accent2)}
+  .toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);background:#000d;
+    border:1px solid var(--line);padding:9px 16px;border-radius:10px;font-size:13px;
+    z-index:50;opacity:0;transition:.25s;pointer-events:none}
+  .toast.show{opacity:1}
+  .hint{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5}
+  .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{flex:1;padding:8px;background:var(--panel2);border:0;color:var(--muted);
+    font-size:12px;cursor:pointer}
+  .seg button.on{background:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <div class="title">HideAllRoot</div>
+      <div class="sub">v2.0 · RootModLab · Zygisk 一体化隐藏</div>
+    </div>
+    <div id="statusBadge" class="badge">检测中…</div>
+  </header>
+
+  <!-- 仪表盘 -->
+  <section class="page active" id="page-dash">
+    <div class="card">
+      <h3>📊 运行状态</h3>
+      <div class="stat">
+        <div class="box"><div class="n" id="stModule">–</div><div class="t">模块启用</div></div>
+        <div class="box"><div class="n" id="stTraces">–</div><div class="t">已拦截痕迹</div></div>
+        <div class="box"><div class="n" id="stTarget">–</div><div class="t">作用应用模式</div></div>
+      </div>
+      <div class="hint" id="dashHint">点击下方按钮可快速运行检测并查看本机是否被 Momo / 春秋等识别为 Root 设备。</div>
+    </div>
+    <div class="card">
+      <h3>🛡️ 已启用的隐藏维度</h3>
+      <div id="dashTags"></div>
+    </div>
+    <div class="card">
+      <h3>🔍 一键自测</h3>
+      <div class="hint">运行一个轻量自检（检查关键属性 / 挂载 / 进程痕迹），结果仅供本地参考。</div>
+      <button class="btn block primary" id="btnSelftest">运行本地自检</button>
+      <div class="log" id="selftestLog" style="display:none"></div>
+    </div>
+  </section>
+
+  <!-- 配置中心 -->
+  <section class="page" id="page-config">
+    <div class="card">
+      <h3>⚙️ 隐藏维度开关</h3>
+      <div id="configRows"></div>
+    </div>
+    <div class="card">
+      <h3>🎯 作用范围</h3>
+      <div class="row">
+        <div>
+          <div class="label">目标模式</div>
+          <div class="desc">0=全部应用 · 1=仅检测工具 · 2=仅自定义包名</div>
+        </div>
+      </div>
+      <div class="seg" id="targetSeg">
+        <button data-v="0">全部应用</button>
+        <button data-v="1">仅检测工具</button>
+        <button data-v="2">仅自定义</button>
+      </div>
+      <div class="hint" id="targetHint"></div>
+    </div>
+    <button class="btn block green" id="btnSaveConfig">保存配置</button>
+  </section>
+
+  <!-- 包名管理 -->
+  <section class="page" id="page-pkg">
+    <div class="card">
+      <h3>📦 检测工具包名 (TARGET_PKGS)</h3>
+      <div class="hint">TARGET_MODE=1 时，仅对这些应用隐藏。每行一个，逗号分隔。</div>
+      <textarea id="targetPkgs"></textarea>
+    </div>
+    <div class="card">
+      <h3>📲 自定义包名 (CUSTOM_PKGS)</h3>
+      <div class="hint">TARGET_MODE=2 时，仅对这些应用隐藏。</div>
+      <textarea id="customPkgs"></textarea>
+    </div>
+    <button class="btn block green" id="btnSavePkgs">保存包名</button>
+  </section>
+
+  <!-- 日志 -->
+  <section class="page" id="page-log">
+    <div class="card">
+      <h3>📜 配置预览</h3>
+      <div class="log" id="cfgView">加载中…</div>
+      <button class="btn block" id="btnReloadCfg" style="margin-top:10px">重新读取配置</button>
+    </div>
+    <div class="card">
+      <h3>🖥️ 运行日志 (logcat)</h3>
+      <div class="hint">过滤 HideAllRoot 标签的最近日志。</div>
+      <button class="btn block" id="btnLogcat">抓取 logcat</button>
+      <div class="log" id="logcatView" style="display:none"></div>
+    </div>
+  </section>
+
+  <!-- 关于 -->
+  <section class="page" id="page-about">
+    <div class="card">
+      <h3>ℹ️ 关于 HideAllRoot v2.0</h3>
+      <div class="row"><div class="label">版本</div><div class="badge">v2.0 (versionCode 10)</div></div>
+      <div class="row"><div class="label">作者</div><div class="badge">RootModLab</div></div>
+      <div class="row"><div class="label">引擎</div><div class="badge">VFS 卸载 + PLT Hook 双引擎</div></div>
+      <div class="row"><div class="label">兼容</div><div class="badge">Magisk 25+ / KSU+ZN / APatch+ZN</div></div>
+      <div class="hint" style="margin-top:10px;line-height:1.7">
+        HideAllRoot 通过 Zygisk 在应用进程内重写底层 libc 调用与直接 syscall，
+        覆盖文件访问、属性、进程枚举、maps、挂载点、守护进程 socket、环境变量、
+        SELinux context 与反调试等维度，对抗 Momo / Ruru / 春秋(SpringRoot) /
+        RootBeer / Play Integrity 检测。所有行为由
+        <code>/data/adb/hideallroot/config.conf</code> 驱动，可经本面板即时调整。
+      </div>
+    </div>
+    <div class="card">
+      <h3>⚠️ 合规与免责</h3>
+      <div class="hint" style="line-height:1.7">
+        本项目为开源安全研究工具，遵循 Magisk 通用模块规范。请仅在你拥有或获授权的设备上使用，
+        遵守所在地区法律法规。模块不修改系统分区、不植入后门，深度隐藏均在应用进程命名空间内完成。
+      </div>
+    </div>
+    <div class="card">
+      <h3>🔗 仓库</h3>
+      <div class="hint">https://github.com/AceGuru-mjh/RootModLab</div>
+    </div>
+  </section>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-page="dash"><span class="ic">📊</span>仪表盘</button>
+  <button class="tab" data-page="config"><span class="ic">⚙️</span>配置</button>
+  <button class="tab" data-page="pkg"><span class="ic">📦</span>包名</button>
+  <button class="tab" data-page="log"><span class="ic">📜</span>日志</button>
+  <button class="tab" data-page="about"><span class="ic">ℹ️</span>关于</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+<script src="main.js"></script>
+</body>
+</html>

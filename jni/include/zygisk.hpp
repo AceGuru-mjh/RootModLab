@@ -91,6 +91,11 @@ public:
 enum Option : int {
     FORCE_DENYLIST_UNMOUNT = 0,
     DLOPEN_DEDUPLICATE    = 1,
+    // Unload the module library after specialization. NOTE: enabling this while
+    // PLT hooks are still registered would leave dangling function pointers and
+    // crash the target process, so HideAllRoot deliberately does NOT use it and
+    // instead hides its own .so via /proc/self/maps line filtering.
+    DLCLOSE_MODULE_LIBRARY = 2,
 };
 
 /**

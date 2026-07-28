@@ -1,18 +1,18 @@
 # ============================================================================
-# HideAllRoot SELinux 放行规则 (sepolicy.rule)
+# HideAllRoot v2.0 SELinux 放行规则 (sepolicy.rule)
 # ----------------------------------------------------------------------------
 # 说明:
-#   本模块的深度隐藏主要在「应用进程内部」完成（Zygisk 注入），应用进程本身
-#   已具备读取 /proc、访问自身 maps 的权限，因此绝大多数 ROM 无需额外规则。
-#   若某些严格机型（MIUI / ColorOS / OxygenOS 等）报 avc: denied 导致注入失败，
-#   可在此追加对应 allow 规则后重启。Magisk / KSU / APatch 均会自动合并本文件。
+#   本模块的深度隐藏主要在「应用进程内部」完成（Zygisk 注入）。v2.0 新增的
+#   VFS 级卸载在目标应用的私有挂载命名空间内执行 umount2(MNT_DETACH)，因此
+#   需要 tmpfs / overlay 文件系统的 unmount 权限。Magisk / KSU / APatch 均会
+#   自动合并本文件。
 #
-# 默认仅提供最小、安全的正读放行；如需更宽松策略请谨慎追加。
+#   仅在确有需要时放宽；如某些机型仍报 avc: denied，可在此追加后重启。
 # ============================================================================
+
+# 允许应用进程在自身命名空间内卸载 Magisk 的 tmpfs / overlay 挂载
+allow { zygote untrusted_app } tmpfs:dir { unmount };
+allow { zygote untrusted_app } overlay:filesystem { unmount };
 
 # 允许模块读取自身配置与 zygisk 目录
 allow { zygisk magisk } { file dir } { read open getattr search };
-
-# 收窄（审查报告 4.2）：仅放开 post-fs-data 将 /dev/null 绑定到日志所需的
-# 最小挂载权限，不再对全部 file 开放 mount。如需更严格可改为具体类型。
-allow init tmpfs:filesystem mount;
