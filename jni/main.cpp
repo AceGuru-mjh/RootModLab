@@ -66,6 +66,9 @@ struct Config {
 };
 
 static Config g_cfg;
+// Per-process decision: should we filter package lists for THIS process?
+// (Excludes framework/system processes even when TARGET_MODE=all.)
+static bool g_apply_applist = false;
 
 /* Package names whose presence we hide from app-list / package scanners. */
 static const char *kHiddenPkgs[] = {
@@ -395,7 +398,7 @@ static int my_open(const char *path, int flags, ...) {
             }
             return fd;
         }
-        if (g_cfg.applist_hide && is_pkglist_path(path)) {
+        if (g_apply_applist && is_pkglist_path(path)) {
             int fd = orig_open(path, flags, mode);
             if (fd >= 0) {
                 std::vector<std::string> blk;
@@ -429,7 +432,7 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
             }
             return fd;
         }
-        if (g_cfg.applist_hide && is_pkglist_path(path)) {
+        if (g_apply_applist && is_pkglist_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
             if (fd >= 0) {
                 std::vector<std::string> blk;
@@ -482,7 +485,7 @@ static FILE *my_fopen(const char *path, const char *mode) {
             }
             return f;
         }
-        if (g_cfg.applist_hide && is_pkglist_path(path)) {
+        if (g_apply_applist && is_pkglist_path(path)) {
             FILE *f = orig_fopen(path, mode);
             if (f) {
                 int fd = fileno(f);
@@ -614,6 +617,7 @@ public:
         if (!is_target_pkg(pkg)) return;   // do not touch non-target processes
 
         bool applist = should_applist_filter(pkg);
+        g_apply_applist = applist;   // used by my_open/my_openat/my_fopen
 
         zygisk::Api *api = this->api;
 
