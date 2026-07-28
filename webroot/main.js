@@ -11,7 +11,7 @@ const MODDIR = `/data/adb/modules/${MODID}`;
 const state = {
     ENABLE_FILE_HIDE: 1, ENABLE_PROP_HIDE: 1, ENABLE_NATIVE_HOOK: 1,
     ENABLE_APPLIST_HIDE: 1, ENABLE_PROC_HIDE: 1, ENABLE_ANTIDEBUG: 1,
-    ENABLE_PI_FIX: 1, ENABLE_MOUNT_HIDE: 1, TARGET_MODE: 0, DETECT_PKGS: '', CUSTOM_PKGS: '',
+    ENABLE_PI_FIX: 1, ENABLE_MOUNT_HIDE: 1, ENABLE_DLADDR_HIDE: 1, TARGET_MODE: 0, DETECT_PKGS: '', CUSTOM_PKGS: '',
 };
 
 // ----- 跨框架 Shell 执行 -----
@@ -71,6 +71,7 @@ function render() {
     document.getElementById('t_anti').checked = !!state.ENABLE_ANTIDEBUG;
     document.getElementById('t_pi').checked = !!state.ENABLE_PI_FIX;
     document.getElementById('t_mount').checked = !!state.ENABLE_MOUNT_HIDE;
+    document.getElementById('t_dladdr').checked = !!state.ENABLE_DLADDR_HIDE;
     document.querySelectorAll('.seg-btn').forEach(b => {
         b.classList.toggle('active', parseInt(b.dataset.mode, 10) === state.TARGET_MODE);
     });
@@ -80,7 +81,7 @@ function render() {
 
 function bindUI() {
     const map = { t_file: 'ENABLE_FILE_HIDE', t_prop: 'ENABLE_PROP_HIDE', t_native: 'ENABLE_NATIVE_HOOK',
-        t_applist: 'ENABLE_APPLIST_HIDE', t_proc: 'ENABLE_PROC_HIDE', t_anti: 'ENABLE_ANTIDEBUG', t_pi: 'ENABLE_PI_FIX', t_mount: 'ENABLE_MOUNT_HIDE' };
+        t_applist: 'ENABLE_APPLIST_HIDE', t_proc: 'ENABLE_PROC_HIDE', t_anti: 'ENABLE_ANTIDEBUG', t_pi: 'ENABLE_PI_FIX', t_mount: 'ENABLE_MOUNT_HIDE', t_dladdr: 'ENABLE_DLADDR_HIDE' };
     Object.keys(map).forEach(id => {
         document.getElementById(id).addEventListener('change', e => { state[map[id]] = e.target.checked ? 1 : 0; });
     });
@@ -112,6 +113,7 @@ function buildConf() {
         `ENABLE_ANTIDEBUG=${state.ENABLE_ANTIDEBUG}`,
         `ENABLE_PI_FIX=${state.ENABLE_PI_FIX}`,
         `ENABLE_MOUNT_HIDE=${state.ENABLE_MOUNT_HIDE}`,
+        `ENABLE_DLADDR_HIDE=${state.ENABLE_DLADDR_HIDE}`,
         `TARGET_MODE=${state.TARGET_MODE}`,
         `DETECT_PKGS=${state.DETECT_PKGS}`,
         `CUSTOM_PKGS=${state.CUSTOM_PKGS}`,

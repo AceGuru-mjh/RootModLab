@@ -4,7 +4,7 @@
 > 针对 **Momo / Ruru / 春秋 (SpringRoot) / RootBeer** 等检测工具做全维度对抗，
 > 内置 **WebUI 配置面板** 与 **终端菜单**，可迭代、可编译、合规开源。
 >
-> **开发者：MJH** · 当前版本 **v1.2**
+> **开发者：MJH** · 当前版本 **v1.3**
 
 ---
 
@@ -68,6 +68,9 @@ HideAllRoot/
 | 挂载点异常（Momo 重点） | 过滤 `/proc/mounts`、`/proc/self/mountinfo` 中 magisk/ksu/apatch/zygisk 挂载行 | `main.cpp` |
 | 守护进程 socket | 过滤 `/proc/net/unix` 中 `magiskd`/`zygiskd`/`ksud`/`apd` 等 socket | `main.cpp` |
 | 注入框架内存特征 | 过滤 `/proc/self/maps` 中 `frida`/`xhook`/`memfd:`/`zygisk_module_entry` 等行（含 Ruru 的 /memfd:jit-cache 扫描） | `main.cpp` |
+| 注入库路径（`dladdr`） | Hook `dladdr` 抹除 `magisk`/`zygisk`/`frida`/`lsplant`/`xhook` 等库路径特征（Momo/Ruru 用 dladdr 探测注入） | `main.cpp` |
+| fd 符号链接 | 隐藏 `/proc/self/fd` 中指向 magisk/zygisk 的链接（伪装为失效） | `main.cpp` |
+| build.prop 直读 | 过滤 `/system/build.prop` 等中 `test-keys`/`userdebug`/`orange` 行（与属性 Hook 互补） | `main.cpp` |
 | 扩充的 Root 框架 / 应用 | 隐藏包名与路径覆盖 Magisk 全分支（Kitsune）、KernelSU、APatch、LSPosed、Riru、TaiChi、EdXposed、SuperSU、Shamiko、Hide-My-Applist、BusyBox 等 | `main.cpp` |
 | DenyList 兜底 | 安装时把检测工具加入 Magisk DenyList（不强制，由模块接管） | `customize.sh` |
 
@@ -150,7 +153,7 @@ bash build.sh
 > built to defeat the **Momo / Ruru / SpringRoot (春秋) / RootBeer** detection tools across every dimension.
 > Ships with a **WebUI config panel** and a **terminal menu**. Iterative, compilable, and open-source.
 >
-> **Developer: MJH** · **v1.2**
+> **Developer: MJH** · **v1.3**
 
 ## Architecture
 
@@ -182,6 +185,9 @@ bash build.sh
 | Mount anomalies (Momo focus) | Filter `magisk`/`ksu`/`apatch`/`zygisk` lines from `/proc/mounts` & `/proc/self/mountinfo` | `main.cpp` |
 | Daemon sockets | Filter `magiskd`/`zygiskd`/`ksud`/`apd` from `/proc/net/unix` | `main.cpp` |
 | Injection memory | Filter `frida`/`xhook`/`memfd:`/`zygisk_module_entry` lines from `/proc/self/maps` (incl. Ruru's /memfd:jit-cache scan) | `main.cpp` |
+| Injection lib paths (`dladdr`) | Hook `dladdr` to strip `magisk`/`zygisk`/`frida`/`lsplant`/`xhook` library paths (Momo/Ruru probe via dladdr) | `main.cpp` |
+| fd symlinks | Hide `/proc/self/fd` symlinks pointing at magisk/zygisk (pretend broken) | `main.cpp` |
+| build.prop direct read | Filter `test-keys`/`userdebug`/`orange` lines from `/system/build.prop` etc. (complements property hook) | `main.cpp` |
 | Expanded frameworks/apps | Hide packages & paths for Magisk (all forks), KernelSU, APatch, LSPosed, Riru, TaiChi, EdXposed, SuperSU, Shamiko, Hide-My-Applist, BusyBox… | `main.cpp` |
 | DenyList fallback | Add detectors to Magisk DenyList at install (optional, module takes over) | `customize.sh` |
 

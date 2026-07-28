@@ -67,6 +67,7 @@ struct Config {
     bool antidebug    = true;
     bool pi_fix       = true;
     bool mount_hide   = true;       // NEW v1.2: hide overlay/magisk mount lines
+    bool dladdr_hide  = true;       // NEW v1.3: strip injection-lib paths from dladdr
     int  target_mode  = 0;          // 0=all 1=detect 2=custom
     std::vector<std::string> detect_pkgs;
     std::vector<std::string> custom_pkgs;
@@ -124,6 +125,14 @@ static const char *kHiddenPkgs[] = {
     "com.chunqiu.check",
     "com.softwinner.firetesting",
     "com.bunny.redtest",
+    "com.kache.mroot",
+    "com.wrbug.rootdetect",
+    "com.joeykrim.rootcheck",
+    "com.elvx.rootcheck",
+    "bin.mt.plus",
+    // 其它 root / 管理工具
+    "com.termux", "ru.meefik.busybox", "com.magiskmanager",
+    "com.omarea.vtools", "com.royal.busybox",
     nullptr,
 };
 
@@ -168,6 +177,7 @@ static void load_config() {
         else if (key == "ENABLE_ANTIDEBUG")   g_cfg.antidebug   = parse_bool(val);
         else if (key == "ENABLE_PI_FIX")      g_cfg.pi_fix      = parse_bool(val);
         else if (key == "ENABLE_MOUNT_HIDE")  g_cfg.mount_hide  = parse_bool(val);
+        else if (key == "ENABLE_DLADDR_HIDE") g_cfg.dladdr_hide = parse_bool(val);
         else if (key == "TARGET_MODE")        g_cfg.target_mode = atoi(val.c_str());
         else if (key == "DETECT_PKGS")        split_csv(val, g_cfg.detect_pkgs);
         else if (key == "CUSTOM_PKGS")        split_csv(val, g_cfg.custom_pkgs);
@@ -206,6 +216,12 @@ static const char *kFilePathBlocks[] = {
     // init / late_start 脚本
     "/data/adb/post-fs-data.d", "/data/adb/service.d",
     "/system/etc/init.d",
+    // magiskinit / ramdisk / 其它残留
+    "/debug_ramdisk", "/sbin/magiskinit", "/system/bin/magiskinit",
+    "/metadata/magisk", "/data/adb/modules_update",
+    "/system/lib64/libmagisk", "/system/lib/libmagisk",
+    "/system/bin/ksud", "/system/bin/apd", "/system/bin/kernelsu",
+    "/data/unencrypted/magisk", "/cache/magisk", "/dev/block/by-name/magisk",
     nullptr,
 };
 
@@ -317,6 +333,7 @@ static FILE     *(*orig_fopen)   (const char *, const char *)                   
 static DIR      *(*orig_opendir) (const char *)                                   = nullptr;
 static int       (*orig_readlink)(const char *, char *, size_t)                   = nullptr;
 static char     *(*orig_realpath)(const char *, char *)                          = nullptr;
+static int       (*orig_dladdr) (void *, Dl_info *)                              = nullptr;
 static int       (*orig_sysprop_get)(const char *, char *)                        = nullptr;
 static FILE     *(*orig_popen)   (const char *, const char *)                     = nullptr;
 static int       (*orig_system) (const char *)                                    = nullptr;
@@ -382,16 +399,73 @@ static bool is_netunix_path(const char *path) {
            !strcmp(path, "/proc/net/tcp6");
 }
 
+static bool is_buildprop_path(const char *path) {
+    if (!path) return false;
+    size_t n = strlen(path);
+    if (n >= 10 && !strcmp(path + n - 10, "build.prop")) {
+        // 仅系统分区下的 build.prop，避免误伤应用私有文件
+        return strstr(path, "/system") || strstr(path, "/vendor") ||
+               strstr(path, "/product") || strstr(path, "/system_ext") ||
+               strstr(path, "/odm");
+    }
+    if (n >= 11 && !strcmp(path + n - 11, "prop.default"))
+        return true;
+    return false;
+}
+
+static bool is_fdlink_path(const char *path) {
+    if (!path) return false;
+    if (strncmp(path, "/proc/self/fd/", 14) == 0) return true;
+    if (strncmp(path, "/proc/", 6) != 0) return false;
+    const char *rest = path + 6;
+    if (!isdigit((unsigned char)rest[0])) return false;
+    const char *p = rest; while (isdigit((unsigned char)*p)) p++;
+    return !strncmp(p, "/fd/", 4);
+}
+
+/* 注入框架 / 隐藏模块相关的库路径特征（用于 dladdr / fd / 通用匹配）。 */
+static bool injlib_blocked(const char *name) {
+    if (!name) return false;
+    static const char *sub[] = {
+        "magisk", "zygisk", "frida", "lsplant", "xhook", "sandhook",
+        "whale", "substrate", "inlinehook", "libwhale", "gum",
+        "libnativebridge", "ksu", "apatch", "lspd", "riru",
+        "libfrida", "frida-agent", "frida-gadget", "libDexHelper",
+        "libepic", "dexmaker", "qbdi", "doom", "kernelsu", nullptr,
+    };
+    for (auto p = sub; *p; ++p)
+        if (strstr(name, *p)) return true;
+    return false;
+}
+
 /* Blocklists for the various virtual files. */
 static std::vector<std::string> maps_blocklist() {
     return {
         "libzygisk", "zygisk", "Zygisk", "magisk", ".magisk",
         "/dev/zygisk", "/dev/magisk", "/data/adb/modules/hideallroot",
         // 注入框架 / 内存特征
-        "frida", "libfrida", "gum", "linjector", "xhook",
-        "libDexHelper", "memfd:", "zygisk_module_entry",
+        "frida", "libfrida", "frida-agent", "frida-gadget", "gum",
+        "linjector", "xhook", "libDexHelper", "memfd:", "zygisk_module_entry",
+        "lsplant", "sandhook", "libwhale", "whale", "substrate",
+        "inlinehook", "libnativebridge", "libepic", "dexmaker", "qbdi", "doom",
         // 其它框架
         "lspd", "riru", "ksu", "apatch", "kernelsu",
+    };
+}
+
+/* Lines to strip from /system/build.prop etc. (complements property hook). */
+static std::vector<std::string> buildprop_blocklist() {
+    return {
+        "ro.build.tags=test-keys",
+        "ro.debuggable=1",
+        "ro.secure=0",
+        "ro.build.type=userdebug",
+        "ro.build.type=eng",
+        "ro.build.flavor",
+        "ro.build.characteristics=eng",
+        "ro.boot.flash.locked=0",
+        "ro.boot.verifiedbootstate=orange",
+        "ro.boot.verifiedbootstate=yellow",
     };
 }
 
@@ -581,6 +655,12 @@ static int my_open(const char *path, int flags, ...) {
             if (fd >= 0) track_buffd(fd, netunix_blocklist());
             return fd;
         }
+        // build.prop 行级过滤（与属性 Hook 互补）
+        if (g_cfg.file_hide && is_buildprop_path(path)) {
+            int fd = orig_open(path, flags, mode);
+            if (fd >= 0) track_buffd(fd, buildprop_blocklist());
+            return fd;
+        }
         // 内存映射：剔除 zygisk/frida/xhook/memfd 等特征行
         if (is_maps_path(path)) {
             int fd = orig_open(path, flags, mode);
@@ -619,6 +699,11 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
         if (g_cfg.proc_hide && is_netunix_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
             if (fd >= 0) track_buffd(fd, netunix_blocklist());
+            return fd;
+        }
+        if (g_cfg.file_hide && is_buildprop_path(path)) {
+            int fd = orig_openat(dirfd, path, flags, mode);
+            if (fd >= 0) track_buffd(fd, buildprop_blocklist());
             return fd;
         }
         if (is_maps_path(path)) {
@@ -679,6 +764,11 @@ static FILE *my_fopen(const char *path, const char *mode) {
             if (f) track_buffd(fileno(f), netunix_blocklist());
             return f;
         }
+        if (g_cfg.file_hide && is_buildprop_path(path)) {
+            FILE *f = orig_fopen(path, mode);
+            if (f) track_buffd(fileno(f), buildprop_blocklist());
+            return f;
+        }
         if (is_maps_path(path)) {
             FILE *f = orig_fopen(path, mode);
             if (f) track_buffd(fileno(f), maps_blocklist());
@@ -702,12 +792,35 @@ static DIR *my_opendir(const char *name) {
 
 static int my_readlink(const char *path, char *buf, size_t bufsiz) {
     if (path && g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
+    if (path && g_cfg.proc_hide && is_fdlink_path(path)) {
+        // 解析 /proc/self/fd/N 真实目标，命中隐藏特征则伪装为失效链接
+        char tmp[4096];
+        ssize_t n = orig_readlink(path, tmp, sizeof(tmp) - 1);
+        if (n > 0) {
+            tmp[n] = '\0';
+            if (injlib_blocked(tmp) || path_blocked(tmp)) { errno = ENOENT; return -1; }
+            return orig_readlink(path, buf, bufsiz);
+        }
+        return n;
+    }
     return orig_readlink(path, buf, bufsiz);
 }
 
 static char *my_realpath(const char *path, char *resolved) {
     if (path && g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return nullptr; }
     return orig_realpath(path, resolved);
+}
+
+/* Strip injection-library paths from dladdr() results.
+ * Momo / Ruru call dladdr() on function pointers to discover injected
+ * libraries (magisk / zygisk / frida / lsplant / xhook ...). */
+static int my_dladdr(void *addr, Dl_info *info) {
+    int r = orig_dladdr(addr, info);
+    if (r && info && g_cfg.dladdr_hide && info->dli_fname && injlib_blocked(info->dli_fname)) {
+        info->dli_fname = "";
+        info->dli_sname = "";
+    }
+    return r;
 }
 
 static int my_sysprop_get(const char *name, char *value) {
@@ -830,6 +943,9 @@ public:
         }
         if (g_cfg.proc_hide) {
             REG(my_opendir, orig_opendir, "opendir");
+        }
+        if (g_cfg.dladdr_hide) {
+            REG(my_dladdr, orig_dladdr, "dladdr");
         }
         if (g_cfg.prop_hide) {
             REG(my_sysprop_get, orig_sysprop_get, "__system_property_get");

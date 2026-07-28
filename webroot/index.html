@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>HideAllRoot 控制台</title>
+    <title>HideAllRoot 控制�?</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,29 +13,30 @@
                 <h1 class="title">HideAllRoot</h1>
                 <p class="subtitle">一键全隐藏 Root · Zygisk 一体化</p>
             </div>
-            <span class="neon-badge" id="statusBadge">加载中</span>
+            <span class="neon-badge" id="statusBadge">加载�?</span>
         </header>
 
-        <!-- 状态卡片 -->
+        <!-- 状态卡�? -->
         <section class="status-card" id="statusCard">
             <div class="status-row"><span>框架</span><b id="fwVal">-</b></div>
             <div class="status-row"><span>Zygisk</span><b id="zygVal">-</b></div>
-            <div class="status-row"><span>模块状态</span><b id="modVal">-</b></div>
+            <div class="status-row"><span>模块状�?</span><b id="modVal">-</b></div>
             <div class="status-row"><span>目标应用</span><b id="tgtVal">-</b></div>
         </section>
 
-        <!-- 分类开关 -->
+        <!-- 分类开�? -->
         <section class="section">
             <h2 class="section-title">隐藏维度</h2>
             <div class="toggle-grid" id="toggleGrid">
-                <label class="toggle-item"><input type="checkbox" id="t_file"><span class="t-label">文件层隐藏</span><span class="t-hint">su / magisk / lspd 路径</span></label>
-                <label class="toggle-item"><input type="checkbox" id="t_prop"><span class="t-label">系统属性</span><span class="t-hint">debuggable / tags ...</span></label>
+                <label class="toggle-item"><input type="checkbox" id="t_file"><span class="t-label">文件层隐�?</span><span class="t-hint">su / magisk / lspd 路径</span></label>
+                <label class="toggle-item"><input type="checkbox" id="t_prop"><span class="t-label">系统属�?</span><span class="t-hint">debuggable / tags ...</span></label>
                 <label class="toggle-item"><input type="checkbox" id="t_native"><span class="t-label">Zygisk 原生 Hook</span><span class="t-hint">open/stat/getprop ...</span></label>
                 <label class="toggle-item"><input type="checkbox" id="t_applist"><span class="t-label">应用列表隐藏</span><span class="t-hint">包名 / packages.xml</span></label>
                 <label class="toggle-item"><input type="checkbox" id="t_proc"><span class="t-label">进程隐藏</span><span class="t-hint">magiskd / zygiskd</span></label>
-                <label class="toggle-item"><input type="checkbox" id="t_anti"><span class="t-label">反调试</span><span class="t-hint">屏蔽 self-ptrace</span></label>
-                <label class="toggle-item"><input type="checkbox" id="t_pi"><span class="t-label">Play Integrity</span><span class="t-hint">基础完整性修补</span></label>
-                <label class="toggle-item"><input type="checkbox" id="t_mount"><span class="t-label">挂载点隐藏</span><span class="t-hint">剔除 magisk/ksu 挂载行</span></label>
+                <label class="toggle-item"><input type="checkbox" id="t_anti"><span class="t-label">反调�?</span><span class="t-hint">屏蔽 self-ptrace</span></label>
+                <label class="toggle-item"><input type="checkbox" id="t_pi"><span class="t-label">Play Integrity</span><span class="t-hint">基础完整性修�?</span></label>
+                <label class="toggle-item"><input type="checkbox" id="t_mount"><span class="t-label">挂载点隐�?</span><span class="t-hint">剔除 magisk/ksu 挂载�?</span></label>
+                <label class="toggle-item"><input type="checkbox" id="t_dladdr"><span class="t-label">注入探测对抗</span><span class="t-hint">dladdr 抹除注入库路�?</span></label>
             </div>
         </section>
 
@@ -44,26 +45,26 @@
             <h2 class="section-title">作用目标</h2>
             <div class="seg" id="targetSeg">
                 <button data-mode="0" class="seg-btn active">全部应用</button>
-                <button data-mode="1" class="seg-btn">仅检测工具</button>
+                <button data-mode="1" class="seg-btn">仅检测工�?</button>
                 <button data-mode="2" class="seg-btn">仅自定义</button>
             </div>
             <div class="editor" id="pkgEditor">
-                <label class="editor-label">检测工具 / 自定义包名（逗号分隔）</label>
+                <label class="editor-label">检测工�? / 自定义包名（逗号分隔�?</label>
                 <textarea id="pkgInput" rows="3" placeholder="com.xtremelabs.momo,com.springroot.ruru,..."></textarea>
-                <p class="editor-note">仅包含字母、数字、下划线、点、逗号、连字符，防止注入。</p>
+                <p class="editor-note">仅包含字母、数字、下划线、点、逗号、连字符，防止注入�?</p>
             </div>
         </section>
 
         <!-- 操作 -->
         <section class="section action-row">
             <button class="neon-btn primary" id="applyBtn">保存配置</button>
-            <button class="neon-btn" id="rebootBtn">保存并重启</button>
+            <button class="neon-btn" id="rebootBtn">保存并重�?</button>
             <button class="neon-btn" id="toggleModBtn">启用/禁用</button>
             <button class="neon-btn" id="checkBtn">运行自检</button>
         </section>
 
         <footer class="log-area" id="logArea">就绪</footer>
-        <div class="credit">HideAllRoot v1.2 · 开发者 MJH · 对抗 Momo / Ruru / 春秋</div>
+        <div class="credit">HideAllRoot v1.3 · 开发�? MJH · 对抗 Momo / Ruru / 春秋</div>
     </div>
     <script src="main.js"></script>
 </body>
