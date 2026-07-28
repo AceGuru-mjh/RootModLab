@@ -3,6 +3,8 @@ name: Build HideAllRoot
 # 自动编译 HideAllRoot 模块：每次 push / PR / 标签 都会产出可刷入的 HideAllRoot.zip
 # - push 到 main / 创建 PR：上传构件（artifact）供下载验证
 # - 推送形如 v* 的 tag：自动创建 GitHub Release 并附上 zip
+#
+# 说明：NDK 直接从 Google 官方源下载，不依赖任何第三方 Action，最大化可复现性。
 on:
   push:
     branches: [ main ]
@@ -16,22 +18,27 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # 仅 tag 发版时用于创建 Release
+    env:
+      NDK_VER: r25c
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Android NDK
-        id: ndk
-        uses: android-actions/setup-ndk@v1
-        with:
-          ndk-version: r25c
+      - name: Install unzip
+        run: sudo apt-get update -y && sudo apt-get install -y unzip zip
 
-      - name: Install zip
-        run: sudo apt-get update -y && sudo apt-get install -y zip
+      - name: Download & extract Android NDK ${{ env.NDK_VER }}
+        run: |
+          NDK_ZIP="android-ndk-${{ env.NDK_VER }}-linux.zip"
+          echo "Downloading $NDK_ZIP ..."
+          curl -fsSL "https://dl.google.com/android/repository/${NDK_ZIP}" -o "/tmp/${NDK_ZIP}"
+          unzip -q "/tmp/${NDK_ZIP}" -d "$HOME"
+          NDK_HOME="$HOME/android-ndk-${{ env.NDK_VER }}"
+          test -x "$NDK_HOME/ndk-build" || { echo "ndk-build not found at $NDK_HOME"; exit 1; }
+          echo "ANDROID_NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+          "$NDK_HOME/ndk-build" --version | head -n 1
 
       - name: Build module (ndk-build + package)
-        env:
-          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: bash build.sh
 
       - name: Verify artifact
