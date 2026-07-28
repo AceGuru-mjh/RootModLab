@@ -437,6 +437,8 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
             if (fd >= 0) {
                 std::vector<std::string> blk;
                 for (auto p = kHiddenPkgs; *p; ++p) blk.emplace_back(*p);
+                for (auto &p : g_cfg.detect_pkgs) blk.push_back(p);
+                for (auto &p : g_cfg.custom_pkgs) blk.push_back(p);
                 track_buffd(fd, blk);
             }
             return fd;

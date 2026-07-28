@@ -1,7 +1,7 @@
 id=hideallroot
 name=一键全隐藏 Root (HideAllRoot)
-version=1.0
-versionCode=1
+version=1.1
+versionCode=2
 author=RootModLab
 description=基于 Zygisk 的一体化 Root 痕迹隐藏模块，对抗 Momo / Ruru / 春秋(SpringRoot) 检测；含 WebUI 配置面板。
 zygisk=yes

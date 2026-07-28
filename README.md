@@ -133,3 +133,73 @@ bash build.sh
 
 本模块仅用于**设备所有者对自身设备的隐私与可控性管理**，所有代码开源、可在本地审查编译。
 请勿用于规避付费内容、金融风控作弊等违反服务条款的场景。
+
+---
+
+# HideAllRoot (English)
+
+> A **Zygisk**-based, all-in-one root-trace hiding module for **Magisk / KernelSU / APatch**,
+> built to defeat the **Momo / Ruru / SpringRoot (春秋)** detection tools across every dimension.
+> Ships with a **WebUI config panel** and a **terminal menu**. Iterative, compilable, and open-source.
+
+## Architecture
+
+| Layer | Target | Location | Frameworks |
+|-------|--------|----------|------------|
+| Static traces | reset dangerous props, hide logs | `post-fs-data.sh` / `service.sh` | Magisk ✅ KSU ✅ APatch ✅ |
+| Native hooks | open/stat/getprop/popen/ptrace… | `zygisk/libzygisk.so` (C++) | Magisk ✅ (native Zygisk)<br>KSU/APatch ⚠️ needs **ZygiskNext** |
+| Process/package | hide magiskd/zygiskd/lspd enumeration | `zygisk/libzygisk.so` | same as above |
+| Config UI | toggles / targets / packages | `webroot/` + `action.sh` | KSU/APatch native WebUI ✅<br>Magisk needs a WebUI add-on |
+
+> **Framework note:** Magisk supports Zygisk natively. KernelSU / APatch do **not** ship Zygisk —
+> install the community module **ZygiskNext** first, otherwise the `zygisk/` native library will not load.
+> The static hiding (`post-fs-data.sh` + `sepolicy.rule`) works on all three frameworks — that is exactly
+> the meaning of "a Magisk-supported module may not be supported by KSU": the native-hook part needs ZygiskNext.
+
+## Detection coverage (Momo / Ruru / SpringRoot)
+
+| Dimension | Countermeasure | Implementation |
+|-----------|----------------|----------------|
+| File layer `su`/`magisk`/`lspd` paths | Hook open/openat/access/fstat/fopen/opendir/readlink/realpath → `ENOENT` | `main.cpp` |
+| System props `ro.magisk*` / `ro.debuggable` / `ro.build.tags` | Hook `__system_property_get` → factory values | `main.cpp` |
+| Process enum `magiskd`/`zygiskd`/`lsposed` | Block `/proc/<pid>/{cmdline,comm,status,stat,wchan,exe}` & `/proc/<pid>` dir → `ENOENT` | `main.cpp` |
+| Command exec `su`/`magisk` | Hook popen/system/execve | `main.cpp` |
+| Native `libzygisk.so` mapping | Filter `/proc/self/maps` & `/proc/<pid>/maps` line-by-line | `main.cpp` |
+| App list (SpringRoot focus) | Filter `/data/system/packages.xml` / `packages.list` for Magisk/LSPosed packages | `main.cpp` |
+| Anti-debug (Ruru self-attach) | Hook `ptrace` to block `PTRACE_ATTACH/SEIZE` on self | `main.cpp` |
+| DenyList fallback | Add detectors to Magisk DenyList at install (optional, module takes over) | `customize.sh` |
+
+## Build & Package
+
+Requirements: Android NDK **r25+** (`ANDROID_NDK_HOME`, or `/opt/android-ndk`), and `zip`.
+
+```bash
+cd HideAllRoot
+bash build.sh
+# output: HideAllRoot.zip (flashable)
+# also produces zygisk/arm64/libzygisk.so and zygisk/arm/libzygisk.so
+```
+
+`build.sh`: ① `ndk-build` for `arm64-v8a` + `armeabi-v7a` →
+② copy `.so` into `zygisk/<abi>/` → ③ package into zip excluding `jni/`, `out/`, etc.
+
+> **CI:** Pushing to `main` builds the zip as a downloadable **artifact**; pushing a `v*` tag
+> creates a GitHub **Release** automatically (see `.github/workflows/build.yml`).
+
+## Flash & Test
+
+1. Flash `HideAllRoot.zip` via Magisk / KSU / APatch manager → reboot.
+   KSU / APatch users: **install ZygiskNext first**, or native hooks will not load.
+2. Configure via the manager's WebUI panel (or terminal `action.sh` menu).
+3. Test in a clean environment (no other hiding modules):
+   - **Momo**: no Magisk/Su traces in the environment section.
+   - **Ruru**: all checks pass, and `/proc/self/maps` shows no `libzygisk`.
+   - **SpringRoot (春秋)**: no Root, no Magisk/LSPosed packages.
+4. Self-check: the WebUI "Run self-check" echoes `ro.debuggable`, `ro.build.tags`,
+   the `su` path, and `ro.magisk.version`.
+
+## Compliance & License
+
+This module is intended only for **device owners managing the privacy and controllability of their own
+devices**. All code is open-source and can be audited and compiled locally. Do not use it to bypass paid
+content, financial-risk-control cheating, or other ToS-violating scenarios.

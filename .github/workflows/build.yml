@@ -1,0 +1,56 @@
+name: Build HideAllRoot
+
+# 自动编译 HideAllRoot 模块：每次 push / PR / 标签 都会产出可刷入的 HideAllRoot.zip
+# - push 到 main / 创建 PR：上传构件（artifact）供下载验证
+# - 推送形如 v* 的 tag：自动创建 GitHub Release 并附上 zip
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 仅 tag 发版时用于创建 Release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Android NDK
+        id: ndk
+        uses: android-actions/setup-ndk@v1
+        with:
+          ndk-version: r25c
+
+      - name: Install zip
+        run: sudo apt-get update -y && sudo apt-get install -y zip
+
+      - name: Build module (ndk-build + package)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash build.sh
+
+      - name: Verify artifact
+        run: |
+          ls -lh HideAllRoot.zip
+          unzip -l HideAllRoot.zip | head -n 20
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HideAllRoot
+          path: HideAllRoot.zip
+          if-no-files-found: error
+
+      - name: Release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: HideAllRoot.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

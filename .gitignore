@@ -5,3 +5,6 @@ libs/
 
 # 本地日志
 *.log
+
+# 编译产物 zip 由 CI 托管（Release / Artifact），不纳入源码仓库
+HideAllRoot.zip
