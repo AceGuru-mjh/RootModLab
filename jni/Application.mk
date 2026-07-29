@@ -1,6 +1,5 @@
-# HideAllRoot v2.0 — NDK application makefile
-# Compile libzygisk.so for all four主流 ABIs.
-APP_ABI := arm64-v8a armeabi-v7a x86 x86_64
-APP_PLATFORM := android-26
-APP_STL := c++_static
-APP_CPPFLAGS := -std=c++17 -fno-exceptions -fno-rtti -O2 -fvisibility=hidden
+APP_ABI      := arm64-v8a armeabi-v7a x86 x86_64
+APP_PLATFORM := android-24
+APP_STL      := c++_static
+APP_PIE      := true
+APP_OPTIM    := release

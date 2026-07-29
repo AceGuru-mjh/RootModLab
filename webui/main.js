@@ -10,17 +10,19 @@
 
   // 维度开关元数据：[key, 显示名, 说明]
   var KEYS = [
-    ['ENABLE',            '总开关',            '主开关，关闭后所有隐藏停止'],
-    ['ENABLE_FILE_HIDE', '文件层隐藏',        'open/openat/openat2/access/stat/readlink'],
-    ['ENABLE_PROP_HIDE', '属性隐藏',          '__system_property_get / __system_property_find'],
-    ['ENABLE_PROC_HIDE', '进程隐藏',          'readdir 过滤 + connect() + kill() 拦截 + PID 缓存'],
-    ['ENABLE_MAPS_HIDE', 'maps 清理',         '/proc/<pid>/maps 过滤 + 匿名映射重命名防御'],
-    ['ENABLE_MOUNT_HIDE','挂载点隐藏',        '/proc/mounts 与 /proc/self/mountinfo 过滤'],
-    ['ENABLE_SOCKET_HIDE','守护进程 socket',  '/proc/net/unix 过滤'],
-    ['ENABLE_DEBUG_HIDE','反调试',            'TracerPid 清零 + 自 ptrace 拦截'],
-    ['ENABLE_UNMOUNT',   'VFS 卸载',          '卸载 Magisk tmpfs / overlay 挂载'],
-    ['ENABLE_ENV_CLEAN', '环境变量清洗',      '清理 Zygisk/Magisk/KSU/APatch 变量与 PATH'],
-    ['ENABLE_ZYGISK_CLEAN','Zygisk 痕迹清理', '激进清理 zygisk/frida/gum/xhook 的 maps 痕迹']
+    ['ENABLE',             '总开关',           '主开关，关闭后所有隐藏停止'],
+    ['ENABLE_FILE_HIDE',   '文件层隐藏',       'open/openat/openat2/access/stat/readlink'],
+    ['ENABLE_PROP_HIDE',   '属性隐藏',         '__system_property_get / __system_property_find'],
+    ['ENABLE_NATIVE_HOOK', '原生 Hook 防护',   'PLT hook 拦截 libc 底层调用'],
+    ['ENABLE_APPLIST_HIDE','应用列表隐藏',     '过滤 /data/system/packages 中的root类包名'],
+    ['ENABLE_PROC_HIDE',   '进程隐藏',         'readdir 过滤 + connect() + kill() 拦截 + PID 缓存'],
+    ['ENABLE_ANTIDEBUG',   '反调试',           'TracerPid 清零 + ptrace/ syscall 拦截'],
+    ['ENABLE_PI_FIX',      'Play Integrity 修复', '配合 PIF/TrickyStore 修复完整性属性'],
+    ['ENABLE_MOUNT_HIDE',  '挂载点隐藏',       '/proc/mounts 与 /proc/self/mountinfo 过滤'],
+    ['ENABLE_DLADDR_HIDE', 'dladdr 隐藏',      'dladdr 探测返回空，隐藏注入库'],
+    ['ENABLE_UNMOUNT',     'VFS 卸载',         '卸载 Magisk tmpfs / overlay 挂载'],
+    ['ENABLE_ENV_CLEAN',   '环境变量清洗',     '清理 Zygisk/Magisk/KSU/APatch 变量与 PATH'],
+    ['ENABLE_ZYGISK_CLEAN','Zygisk 痕迹清理',  '激进清理 zygisk/frida/gum/xhook 的 maps 痕迹']
   ];
 
   var cfg = {};
@@ -84,7 +86,7 @@
       lines.push(kv[0] + '=' + (cfg[kv[0]] === '1' ? '1' : '0'));
     });
     lines.push('TARGET_MODE=' + (cfg['TARGET_MODE'] || '0'));
-    lines.push('TARGET_PKGS=' + (cfg['TARGET_PKGS'] || ''));
+    lines.push('DETECT_PKGS=' + (cfg['DETECT_PKGS'] || ''));
     lines.push('CUSTOM_PKGS=' + (cfg['CUSTOM_PKGS'] || ''));
     return lines.join('\n') + '\n';
   }
@@ -128,7 +130,7 @@
   }
 
   function renderPkgs() {
-    $('targetPkgs').value = cfg['TARGET_PKGS'] || '';
+    $('targetPkgs').value = cfg['DETECT_PKGS'] || '';
     $('customPkgs').value = cfg['CUSTOM_PKGS'] || '';
   }
 
@@ -172,8 +174,8 @@
   /* ---------- 动作 ---------- */
   function saveConfig() {
     // 仅当包名页被编辑过才同步
-    cfg['TARGET_PKGS'] = ($('targetPkgs').value || '').trim();
-    cfg['TARGET_PKGS'] = cfg['TARGET_PKGS'].replace(/\s+/g, '');
+    cfg['DETECT_PKGS'] = ($('targetPkgs').value || '').trim();
+    cfg['DETECT_PKGS'] = cfg['DETECT_PKGS'].replace(/\s+/g, '');
     cfg['CUSTOM_PKGS'] = ($('customPkgs').value || '').trim().replace(/\s+/g, '');
     var text = buildConfigText();
     var b64 = b64encode(text);
