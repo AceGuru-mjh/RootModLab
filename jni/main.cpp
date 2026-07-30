@@ -45,6 +45,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #include <sys/mman.h>
 #include <sys/mount.h>
@@ -64,6 +65,15 @@
 #include <vector>
 
 #include "zygisk.hpp"
+
+/* linux_dirent64（内核 ABI，bionic 头文件不一定导出，自行定义以过滤 getdents64） */
+struct har_dirent64 {
+    uint64_t        d_ino;
+    int64_t         d_off;
+    unsigned short  d_reclen;
+    unsigned char   d_type;
+    char            d_name[];
+};
 
 #define LOG_TAG "HideAllRoot"
 #define HAR_LOG(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -563,6 +573,8 @@ static int     (*orig_close)    (int)                              = nullptr;
 static int     (*orig_kill)     (pid_t, int)                       = nullptr;
 static int     (*orig_connect)  (int, const struct sockaddr *, socklen_t) = nullptr;
 static long    (*orig_syscall_fn)(long, long, long, long, long, long, long) = nullptr;
+/* NEW v2.1: getdents64（拦截直接 syscall 枚举 /proc） */
+static long    (*orig_getdents64)(unsigned int, struct har_dirent64 *, unsigned int) = nullptr;
 
 /* ====================================================================
  *  SECTION 5 — 缓冲文件过滤器（修复 pread64 / 新增 lseek）
@@ -575,6 +587,10 @@ struct BufFilter {
 
 static std::unordered_map<int, BufFilter> g_buffds;
 static std::mutex g_bufmtx;
+
+/* NEW v2.1: 追踪通过 open/openat 打开的 /proc 目录 fd（供 getdents64 过滤） */
+static std::unordered_set<int> g_proc_dir_fds;
+static std::mutex g_procfds_mtx;
 
 /* ---- 路径判断 ---- */
 static bool is_maps_path(const char *path) {
@@ -645,6 +661,13 @@ static bool is_fdlink_path(const char *path) {
     if (!isdigit((unsigned char)rest[0])) return false;
     const char *p = rest; while (isdigit((unsigned char)*p)) p++;
     return !strncmp(p, "/fd/", 4);
+}
+
+/* NEW v2.1: /proc/self/environ（环境变量泄漏，含 MAGISK_VER 等） */
+static bool is_environ_path(const char *path) {
+    if (!path) return false;
+    return !strcmp(path, "/proc/self/environ") ||
+           !strcmp(path, "/proc/thread-self/environ");
 }
 
 /* NEW: /proc/<pid>/attr/（SELinux context 文件过滤） */
@@ -725,6 +748,44 @@ static void track_buffd(int fd, const std::vector<std::string> &block,
 static void drop_buffd(int fd) {
     std::lock_guard<std::mutex> lk(g_bufmtx);
     g_buffds.erase(fd);
+}
+
+/* NEW v2.1: environ 专用过滤。
+ * /proc/self/environ 是 '\0' 分隔的 KEY=VALUE 序列（非换行分隔），
+ * 不能复用 filter_lines（按 '\n' 切分会把整块当一行整体丢弃）。
+ * 这里按 '\0' 切分，剔除 kEnvClean 中列出的敏感变量后重建缓冲。 */
+static void track_environ_fd(int fd) {
+    if (fd < 0) return;
+    std::string content;
+    char buf[4096];
+    ssize_t n;
+    while ((n = orig_read(fd, buf, sizeof(buf))) > 0)
+        content.append(buf, (size_t)n);
+
+    std::string out;
+    out.reserve(content.size());
+    size_t start = 0;
+    while (start < content.size()) {
+        size_t end = content.find('\0', start);
+        size_t entry_len = (end == std::string::npos ? content.size() : end) - start;
+        std::string entry = content.substr(start, entry_len);
+
+        size_t eq = entry.find('=');
+        std::string key = (eq == std::string::npos) ? entry : entry.substr(0, eq);
+        bool drop = false;
+        for (auto p = kEnvClean; *p; ++p)
+            if (key == *p) { drop = true; break; }
+        if (!drop) { out.append(entry); out.push_back('\0'); }
+
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+
+    BufFilter bf;
+    bf.data = std::move(out);
+    bf.off = 0;
+    std::lock_guard<std::mutex> lk(g_bufmtx);
+    g_buffds[fd] = std::move(bf);
 }
 
 /* ====================================================================
@@ -1033,6 +1094,11 @@ static int my_open(const char *path, int flags, ...) {
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
         if (g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
 
+        if (g_cfg.env_clean && is_environ_path(path)) {
+            int fd = orig_open(path, flags, mode);
+            if (fd >= 0) track_environ_fd(fd);
+            return fd;
+        }
         if (g_cfg.antidebug && is_status_path(path)) {
             int fd = orig_open(path, flags, mode);
             if (fd >= 0) track_buffd(fd, {}, true);
@@ -1069,6 +1135,16 @@ static int my_open(const char *path, int flags, ...) {
             return fd;
         }
     }
+    /* NEW v2.1: 追踪 /proc 目录 fd，供 getdents64 过滤使用 */
+    if (g_cfg.proc_hide && path &&
+        (strcmp(path, "/proc") == 0 || strcmp(path, "/proc/") == 0)) {
+        int fd = orig_open(path, flags, mode);
+        if (fd >= 0) {
+            std::lock_guard<std::mutex> lk(g_procfds_mtx);
+            g_proc_dir_fds.insert(fd);
+        }
+        return fd;
+    }
     return orig_open(path, flags, mode);
 }
 
@@ -1083,6 +1159,11 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
         if (g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
 
+        if (g_cfg.env_clean && is_environ_path(path)) {
+            int fd = orig_openat(dirfd, path, flags, mode);
+            if (fd >= 0) track_environ_fd(fd);
+            return fd;
+        }
         if (g_cfg.antidebug && is_status_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
             if (fd >= 0) track_buffd(fd, {}, true);
@@ -1118,6 +1199,16 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
             if (fd >= 0) track_buffd(fd, applist_blocklist());
             return fd;
         }
+    }
+    /* NEW v2.1: 追踪 /proc 目录 fd，供 getdents64 过滤使用 */
+    if (g_cfg.proc_hide && path &&
+        (strcmp(path, "/proc") == 0 || strcmp(path, "/proc/") == 0)) {
+        int fd = orig_openat(dirfd, path, flags, mode);
+        if (fd >= 0) {
+            std::lock_guard<std::mutex> lk(g_procfds_mtx);
+            g_proc_dir_fds.insert(fd);
+        }
+        return fd;
     }
     return orig_openat(dirfd, path, flags, mode);
 }
@@ -1177,6 +1268,11 @@ static FILE *my_fopen(const char *path, const char *mode) {
         if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return nullptr; }
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return nullptr; }
 
+        if (g_cfg.env_clean && is_environ_path(path)) {
+            FILE *f = orig_fopen(path, mode);
+            if (f) track_environ_fd(fileno(f));
+            return f;
+        }
         if (g_cfg.antidebug && is_status_path(path)) {
             FILE *f = orig_fopen(path, mode);
             if (f) track_buffd(fileno(f), {}, true);
@@ -1257,6 +1353,52 @@ static int my_closedir(DIR *dirp) {
         g_proc_dirs.erase(dirp);
     }
     return orig_closedir(dirp);
+}
+
+/* ---------- getdents64（NEW v2.1：拦截直接 syscall 枚举 /proc） ----------
+ *
+ * Momo/Ruru/Native Detector 常用 getdents64 直接枚举 /proc 下的 PID 目录，
+ * 绕过 readdir64 的 PLT hook。这里在 libc 层拦截 getdents64，就地过滤掉
+ * 被隐藏的 PID 目录项。共享给 PLT hook 和 syscall(SYS_getdents64) 兜底。
+ *
+ * 局限：若检测工具用内联汇编 svc #0 直接发起 getdents64，仍无法拦截
+ * （PLT hook 的根本限制，需 inline hook / seccomp 才能覆盖）。 */
+static long filter_proc_dents(unsigned int fd, struct har_dirent64 *dirp,
+                              long nread) {
+    if (nread <= 0 || !g_cfg.proc_hide) return nread;
+
+    bool is_proc;
+    {
+        std::lock_guard<std::mutex> lk(g_procfds_mtx);
+        is_proc = g_proc_dir_fds.count((int)fd) > 0;
+    }
+    if (!is_proc) return nread;
+
+    long new_total = 0;
+    long bpos = 0;
+    while (bpos < nread) {
+        struct har_dirent64 *d =
+            (struct har_dirent64 *)((char *)dirp + bpos);
+        if (d->d_reclen == 0) break;  /* 防御：避免死循环 */
+        bool skip = false;
+        if (d->d_name[0] >= '0' && d->d_name[0] <= '9') {
+            long pid = atol(d->d_name);
+            if (pid > 0 && is_pid_blocked(pid)) skip = true;
+        }
+        if (!skip) {
+            if (new_total != bpos)
+                memmove((char *)dirp + new_total, d, d->d_reclen);
+            new_total += d->d_reclen;
+        }
+        bpos += d->d_reclen;
+    }
+    return new_total;
+}
+
+static long my_getdents64(unsigned int fd, struct har_dirent64 *dirp,
+                          unsigned int count) {
+    long nread = orig_getdents64(fd, dirp, count);
+    return filter_proc_dents(fd, dirp, nread);
 }
 
 /* ---------- readlink / realpath ---------- */
@@ -1440,7 +1582,12 @@ static off_t my_lseek(int fd, off_t offset, int whence) {
 
 /* ---------- close ---------- */
 static int my_close(int fd) {
-    if (fd >= 0) drop_buffd(fd);
+    if (fd >= 0) {
+        drop_buffd(fd);
+        /* NEW v2.1: 清理 /proc 目录 fd 追踪 */
+        std::lock_guard<std::mutex> lk(g_procfds_mtx);
+        g_proc_dir_fds.erase(fd);
+    }
     return orig_close(fd);
 }
 
@@ -1504,6 +1651,14 @@ static long my_syscall(long number, long a1, long a2, long a3,
         }
     }
 #endif
+#ifdef SYS_getdents64
+    /* NEW v2.1: syscall(SYS_getdents64,...) 兜底，过滤 /proc PID 枚举 */
+    if (number == SYS_getdents64 && g_cfg.proc_hide) {
+        long nread = orig_syscall_fn(number, a1, a2, a3, a4, a5, a6);
+        return filter_proc_dents((unsigned int)a1,
+                                 (struct har_dirent64 *)a2, nread);
+    }
+#endif
     return orig_syscall_fn(number, a1, a2, a3, a4, a5, a6);
 }
 
@@ -1562,6 +1717,8 @@ public:
             REG(my_closedir,   orig_closedir,   "closedir");
             REG(my_kill,       orig_kill,       "kill");
             REG(my_connect,    orig_connect,    "connect");
+            /* NEW v2.1: getdents64 直接枚举拦截 */
+            REG(my_getdents64, orig_getdents64, "getdents64");
         }
         if (g_cfg.dladdr_hide) {
             REG(my_dladdr, orig_dladdr, "dladdr");
@@ -1594,7 +1751,7 @@ public:
         if (!api->pltHookCommit())
             HAR_LOG("pltHookCommit FAILED for %s", pkg.c_str());
         else
-            HAR_LOG("v2.0 active: %s (file=%d prop=%d proc=%d app=%d mnt=%d adb=%d unmount=%d env=%d)",
+            HAR_LOG("v2.1 active: %s (file=%d prop=%d proc=%d app=%d mnt=%d adb=%d unmount=%d env=%d)",
                     pkg.c_str(), g_cfg.file_hide, g_cfg.prop_hide,
                     g_cfg.proc_hide, applist, g_cfg.mount_hide,
                     g_cfg.antidebug, g_cfg.unmount_magisk, g_cfg.env_clean);

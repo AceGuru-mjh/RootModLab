@@ -1,8 +1,8 @@
 id=hideallroot
 name=一键全隐藏 Root (HideAllRoot)
-version=2.0
-versionCode=10
+version=2.1
+versionCode=11
 author=MJH
-description=VFS级unmount+PLT hook双重隐藏。对抗春秋/Momo/Ruru/Hunter/牛头。含WebUI。
+description=PLT hook+VFS unmount。新增getdents64拦截/environ过滤/官方.so命名。配合TrickyStore+PIF+LSPosed使用效果最佳。
 zygisk=yes
 support=https://github.com/AceGuru-mjh/RootModLab
