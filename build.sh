@@ -34,17 +34,20 @@ echo "[*] 编译 libzygisk.so (arm64-v8a, armeabi-v7a, x86, x86_64) ..."
     NDK_LIBS_OUT="$OUT_DIR/libs" \
     NDK_OUT="$OUT_DIR/obj"
 
-echo "[*] 放置二进制 ..."
+echo "[*] 放置二进制（Magisk 官方规范：zygisk/<ABI>.so）..."
+# 清理旧的非标准子目录布局（zygisk/arm64/libzygisk.so 等 Magisk 不加载）
+rm -rf "$MODULE_DIR/zygisk/arm64" "$MODULE_DIR/zygisk/arm" \
+       "$MODULE_DIR/zygisk/x86" "$MODULE_DIR/zygisk/x64" \
+       "$MODULE_DIR/zygisk/x86_64"
+mkdir -p "$MODULE_DIR/zygisk"
 for abi in arm64-v8a armeabi-v7a x86 x86_64; do
-    case "$abi" in
-        arm64-v8a)  dst="zygisk/arm64" ;;
-        armeabi-v7a) dst="zygisk/arm"   ;;
-        x86)         dst="zygisk/x86"   ;;
-        x86_64)      dst="zygisk/x64"   ;;
-    esac
-    mkdir -p "$MODULE_DIR/$dst"
-    cp -f "$OUT_DIR/libs/$abi/libzygisk.so" "$MODULE_DIR/$dst/libzygisk.so"
-    echo "    -> $dst/libzygisk.so"
+    src="$OUT_DIR/libs/$abi/libzygisk.so"
+    if [ -f "$src" ]; then
+        cp -f "$src" "$MODULE_DIR/zygisk/${abi}.so"
+        echo "    ✓ zygisk/${abi}.so"
+    else
+        echo "    ✗ $abi (missing)"
+    fi
 done
 
 # 标准管理器（Magisk / KSU / APatch）从 webroot/ 加载 WebUI；
