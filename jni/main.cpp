@@ -536,6 +536,7 @@ static int     (*orig_access)   (const char *, int)                = nullptr;
 static int     (*orig_faccessat)(int, const char *, int, int)      = nullptr;
 static int     (*orig_stat)     (const char *, struct stat *)      = nullptr;
 static int     (*orig_lstat)    (const char *, struct stat *)      = nullptr;
+static int     (*orig_fstatat)  (int, const char *, struct stat *, int) = nullptr;
 static FILE   *(*orig_fopen)    (const char *, const char *)       = nullptr;
 static DIR    *(*orig_opendir)  (const char *)                     = nullptr;
 static struct dirent *(*orig_readdir64)(DIR *)                     = nullptr;
@@ -545,6 +546,12 @@ static char   *(*orig_realpath) (const char *, char *)             = nullptr;
 static int     (*orig_dladdr)   (void *, Dl_info *)                = nullptr;
 static int     (*orig_sysprop_get) (const char *, char *)          = nullptr;
 static const void *(*orig_sysprop_find)(const char *)              = nullptr;
+/* Android 8+ 属性回调 API（__system_property_read_callback） */
+typedef void (*prop_cb_t)(void *cookie, const char *name,
+                          const char *value, unsigned int serial);
+typedef void (*prop_read_cb_fn_t)(const void *pi, prop_cb_t cb, void *cookie);
+
+static prop_read_cb_fn_t orig_prop_read_cb = nullptr;
 static FILE   *(*orig_popen)    (const char *, const char *)       = nullptr;
 static int     (*orig_system)   (const char *)                     = nullptr;
 static int     (*orig_execve)   (const char *, char *const[], char *const[]) = nullptr;
@@ -758,6 +765,28 @@ static bool is_pid_blocked(long pid) {
         g_pid_cache[pid] = {comm, blocked, now};
     }
     return blocked;
+}
+
+/* /proc/<pid>/attr/ SELinux context 防护：屏蔽被拦截进程（如 magiskd）的
+ * SELinux context 读取，防止检测工具拿到 u:r:magisk:s0 之类上下文。
+ * self / thread-self 放行（App 自身 context 本就是 untrusted_app）。 */
+static bool proc_attr_blocked(const char *path) {
+    if (!path || strncmp(path, "/proc/", 6) != 0) return false;
+    const char *rest = path + 6;
+
+    /* self / thread-self → 放行 */
+    if (!strncmp(rest, "self/", 5) || !strncmp(rest, "thread-self/", 12))
+        return false;
+
+    /* 必须是 /proc/<digits>/attr[/...] */
+    if (!isdigit((unsigned char)rest[0])) return false;
+    const char *p = rest;
+    while (isdigit((unsigned char)*p)) p++;
+    if (strncmp(p, "/attr/", 6) != 0 && strcmp(p, "/attr") != 0)
+        return false;
+
+    long pid = atol(rest);
+    return is_pid_blocked(pid);
 }
 
 static bool proc_dir_or_file_blocked(const char *path, bool is_dir) {
@@ -1002,8 +1031,7 @@ static int my_open(const char *path, int flags, ...) {
     if (path) {
         if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
-        if (g_cfg.file_hide && g_cfg.proc_hide && is_proc_attr_path(path) &&
-            proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+        if (g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
 
         if (g_cfg.antidebug && is_status_path(path)) {
             int fd = orig_open(path, flags, mode);
@@ -1053,8 +1081,7 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
     if (path) {
         if (g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
         if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
-        if (g_cfg.file_hide && g_cfg.proc_hide && is_proc_attr_path(path) &&
-            proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+        if (g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
 
         if (g_cfg.antidebug && is_status_path(path)) {
             int fd = orig_openat(dirfd, path, flags, mode);
@@ -1099,12 +1126,14 @@ static int my_openat(int dirfd, const char *path, int flags, ...) {
 static int my_access(const char *path, int mode) {
     if (path && g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
     if (path && g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+    if (path && g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
     return orig_access(path, mode);
 }
 
 static int my_faccessat(int dirfd, const char *path, int mode, int flags) {
     if (path && g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
     if (path && g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+    if (path && g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
     return orig_faccessat(dirfd, path, mode, flags);
 }
 
@@ -1112,13 +1141,34 @@ static int my_faccessat(int dirfd, const char *path, int mode, int flags) {
 static int my_stat(const char *path, struct stat *buf) {
     if (path && g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
     if (path && g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+    if (path && g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
     return orig_stat(path, buf);
 }
 
 static int my_lstat(const char *path, struct stat *buf) {
     if (path && g_cfg.file_hide && path_blocked(path)) { errno = ENOENT; return -1; }
     if (path && g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) { errno = ENOENT; return -1; }
+    if (path && g_cfg.proc_hide && proc_attr_blocked(path)) { errno = ENOENT; return -1; }
     return orig_lstat(path, buf);
+}
+
+/* ---------- fstatat（补齐 stat 族最后一个，防止 fstatat(AT_FDCWD,...) 绕过） ---------- */
+static int my_fstatat(int dirfd, const char *path, struct stat *buf, int flags) {
+    if (path) {
+        if (g_cfg.file_hide && path_blocked(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+        if (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false)) {
+            errno = ENOENT;
+            return -1;
+        }
+        if (g_cfg.proc_hide && proc_attr_blocked(path)) {
+            errno = ENOENT;
+            return -1;
+        }
+    }
+    return orig_fstatat(dirfd, path, buf, flags);
 }
 
 /* ---------- fopen ---------- */
@@ -1260,6 +1310,42 @@ static const void *my_sysprop_find(const char *name) {
     if (name && g_cfg.prop_hide && prop_is_hidden(name))
         return nullptr;
     return orig_sysprop_find(name);
+}
+
+/* ---------- __system_property_read_callback（NEW） ---------- */
+/* 原理：原 API 同步调用用户 callback 并传入 (name, value, serial)。
+ * 我们包装一层：拿到原始值后，按需替换/隐匿再转发给用户 callback。
+ * orig_prop_read_cb 在返回前同步调用 callback，故栈上 PropCbCtx 在其执行期有效。 */
+struct PropCbCtx {
+    prop_cb_t user_cb;
+    void     *user_cookie;
+};
+
+static void prop_cb_trampoline(void *ctx, const char *name,
+                               const char *value, unsigned int serial) {
+    PropCbCtx *c = static_cast<PropCbCtx *>(ctx);
+    if (name && g_cfg.prop_hide) {
+        /* 完全隐藏的属性：给空值（find 已返回 NULL，这里是兜底） */
+        if (prop_is_hidden(name)) {
+            c->user_cb(c->user_cookie, name, "", serial);
+            return;
+        }
+        /* 需要伪装的属性：替换值 */
+        if (prop_is_blocked(name)) {
+            const char *safe = safe_prop_value(name);
+            c->user_cb(c->user_cookie, name, safe, serial);
+            return;
+        }
+    }
+    /* 正常属性：原样转发 */
+    c->user_cb(c->user_cookie, name, value, serial);
+}
+
+static void my_prop_read_cb(const void *pi, prop_cb_t callback, void *cookie) {
+    PropCbCtx ctx;
+    ctx.user_cb     = callback;
+    ctx.user_cookie = cookie;
+    orig_prop_read_cb(pi, prop_cb_trampoline, &ctx);
 }
 
 /* ---------- 命令执行 ---------- */
@@ -1465,6 +1551,7 @@ public:
             REG(my_faccessat, orig_faccessat, "faccessat");
             REG(my_stat,      orig_stat,      "stat");
             REG(my_lstat,     orig_lstat,     "lstat");
+            REG(my_fstatat,   orig_fstatat,   "fstatat");
             REG(my_fopen,     orig_fopen,     "fopen");
             REG(my_readlink,  orig_readlink,  "readlink");
             REG(my_realpath,  orig_realpath,  "realpath");
@@ -1482,6 +1569,7 @@ public:
         if (g_cfg.prop_hide) {
             REG(my_sysprop_get,  orig_sysprop_get,  "__system_property_get");
             REG(my_sysprop_find, orig_sysprop_find, "__system_property_find");
+            REG(my_prop_read_cb,  orig_prop_read_cb,  "__system_property_read_callback");
         }
         if (g_cfg.file_hide || applist || g_cfg.mount_hide ||
             g_cfg.antidebug || g_cfg.proc_hide) {
