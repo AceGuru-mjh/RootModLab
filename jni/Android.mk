@@ -5,7 +5,7 @@ include $(CLEAR_VARS)
 # Magisk's Zygisk loader expects the library to be named EXACTLY libzygisk.so
 # and placed under <module>/zygisk/<abi>/libzygisk.so
 LOCAL_MODULE    := zygisk
-LOCAL_SRC_FILES := main.cpp
+LOCAL_SRC_FILES := main.cpp seccomp_poc.cpp
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
 
 # Self-contained: static STL, only libc/libdl/liblog dependencies.

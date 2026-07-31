@@ -1,0 +1,8 @@
+id=hideallroot_system
+name=HideAllRoot System
+version=3.0
+versionCode=20
+author=MJH
+description=系统级加固：属性伪装 / SELinux 注入 / 挂载命名空间准备 / boot 痕迹清理。请先于 Runtime 安装。
+support=https://github.com/AceGuru-mjh/RootModLab
+updateJson=https://raw.githubusercontent.com/AceGuru-mjh/RootModLab/main/HideAllRoot-System/update.json

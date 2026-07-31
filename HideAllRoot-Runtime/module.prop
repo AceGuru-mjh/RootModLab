@@ -1,0 +1,9 @@
+id=hideallroot_runtime
+name=HideAllRoot Runtime
+version=3.0
+versionCode=20
+author=MJH
+description=Zygisk 运行时引擎：PLT hook + seccomp 稳妥 PoC(默认关)。需先安装 HideAllRoot-System。
+zygisk=yes
+support=https://github.com/AceGuru-mjh/RootModLab
+updateJson=https://raw.githubusercontent.com/AceGuru-mjh/RootModLab/main/HideAllRoot-Runtime/update.json

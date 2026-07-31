@@ -1,10 +1,5 @@
-name: Build HideAllRoot
+name: Build Modules
 
-# 自动编译 HideAllRoot 模块：每次 push / PR / 标签 都会产出可刷入的 HideAllRoot.zip
-# - push 到 main / 创建 PR：上传构件（artifact）供下载验证
-# - 推送形如 v* 的 tag：自动创建 GitHub Release 并附上 zip
-#
-# NDK 通过官方维护的 nttld/setup-ndk action 安装（r26d），无需第三方源。
 on:
   push:
     branches: [ main ]
@@ -16,8 +11,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # 仅 tag 发版时用于创建 Release
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,26 +20,25 @@ jobs:
         with:
           ndk-version: r26d
 
-      - name: Build module (ndk-build + package)
+      - name: Build & package both modules
         run: bash build.sh
 
-      - name: Verify artifact
-        run: |
-          ls -lh HideAllRoot.zip
-          unzip -l HideAllRoot.zip | head -n 25
-
-      - name: Upload artifact
+      - name: Upload Runtime artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HideAllRoot
-          path: HideAllRoot.zip
-          if-no-files-found: error
+          name: HideAllRoot-Runtime
+          path: release/HideAllRoot-Runtime.zip
+
+      - name: Upload System artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HideAllRoot-System
+          path: release/HideAllRoot-System.zip
 
       - name: Release on tag
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: HideAllRoot.zip
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            release/HideAllRoot-Runtime.zip
+            release/HideAllRoot-System.zip

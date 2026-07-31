@@ -1,0 +1,9 @@
+# HideAllRoot-System — 最小化 SELinux 规则
+#
+# 设计原则：尽量只保留运行时绝对必要的规则。
+# 绝大多数域权限（如 app 进程读取共享配置）应优先通过 magiskpolicy --live
+# 在 service.sh 动态注入，避免在内核策略里留下静态文件痕迹。
+#
+# 仅保留 VFS 卸载所需的最核心一条（Zygote/App 卸载 tmpfs 覆盖）。
+allow { zygote untrusted_app } tmpfs:dir { unmount };
+allow { zygote untrusted_app } overlay:filesystem { unmount };

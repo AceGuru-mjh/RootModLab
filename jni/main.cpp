@@ -78,6 +78,9 @@ struct har_dirent64 {
 #define LOG_TAG "HideAllRoot"
 #define HAR_LOG(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
+/* NEW v3.0: seccomp 稳妥 PoC（jni/seccomp_poc.cpp 提供实现） */
+bool har_install_seccomp_poc();
+
 #ifndef PR_SET_VMA
 #define PR_SET_VMA 0x53564d41
 #endif
@@ -105,6 +108,7 @@ struct Config {
     bool unmount_magisk = true;   /* NEW: VFS 级 unmount */
     bool env_clean      = true;   /* NEW: 环境变量清洗 */
     bool zygisk_clean   = true;   /* NEW: Zygisk 痕迹清理 */
+    bool seccomp_poc    = false;  /* NEW v3.0: seccomp 稳妥 PoC（默认关） */
     int  target_mode    = 0;      /* 0=all 1=detect 2=custom */
     std::vector<std::string> detect_pkgs;
     std::vector<std::string> custom_pkgs;
@@ -211,6 +215,7 @@ static void load_config() {
         else if (key == "ENABLE_UNMOUNT")     g_cfg.unmount_magisk = parse_bool(val);
         else if (key == "ENABLE_ENV_CLEAN")   g_cfg.env_clean      = parse_bool(val);
         else if (key == "ENABLE_ZYGISK_CLEAN")g_cfg.zygisk_clean   = parse_bool(val);
+        else if (key == "ENABLE_SECCOMP_POC") g_cfg.seccomp_poc    = parse_bool(val);
         else if (key == "TARGET_MODE")        g_cfg.target_mode    = atoi(val.c_str());
         else if (key == "DETECT_PKGS")        split_csv(val, g_cfg.detect_pkgs);
         else if (key == "CUSTOM_PKGS")        split_csv(val, g_cfg.custom_pkgs);
@@ -575,6 +580,15 @@ static int     (*orig_connect)  (int, const struct sockaddr *, socklen_t) = null
 static long    (*orig_syscall_fn)(long, long, long, long, long, long, long) = nullptr;
 /* NEW v2.1: getdents64（拦截直接 syscall 枚举 /proc） */
 static long    (*orig_getdents64)(unsigned int, struct har_dirent64 *, unsigned int) = nullptr;
+
+/* NEW v3.0: seccomp PoC 接口（由 jni/seccomp_poc.cpp 使用） */
+uintptr_t g_libc_base = 0;
+uintptr_t g_libc_end  = 0;
+bool seccomp_poc_should_hide(const char *path) {
+    if (!path) return false;
+    return (g_cfg.file_hide && path_blocked(path)) ||
+           (g_cfg.proc_hide && proc_dir_or_file_blocked(path, false));
+}
 
 /* ====================================================================
  *  SECTION 5 — 缓冲文件过滤器（修复 pread64 / 新增 lseek）
@@ -1755,6 +1769,15 @@ public:
                     pkg.c_str(), g_cfg.file_hide, g_cfg.prop_hide,
                     g_cfg.proc_hide, applist, g_cfg.mount_hide,
                     g_cfg.antidebug, g_cfg.unmount_magisk, g_cfg.env_clean);
+
+        /* NEW v3.0: seccomp 稳妥 PoC（默认关，需 ENABLE_SECCOMP_POC=1）
+         * 仅对目标 app 在 PLT 注册后安装，拦截绕过 PLT 的 raw svc openat。 */
+        if (g_cfg.seccomp_poc) {
+            if (har_install_seccomp_poc())
+                HAR_LOG("seccomp PoC installed for %s", pkg.c_str());
+            else
+                HAR_LOG("seccomp PoC install FAILED for %s", pkg.c_str());
+        }
     }
 
     void postAppSpecialize(zygisk::AppSpecializeArgs *args) override {

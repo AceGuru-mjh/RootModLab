@@ -1,11 +1,17 @@
-# 构建中间产物
+# Build artifacts
 out/
-obj/
-libs/
-webroot/
+release/
+*.zip
+HideAllRoot-Runtime/libs/
+HideAllRoot-Runtime/obj/
+HideAllRoot-Runtime/build/
 
-# 本地日志
-*.log
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
 
-# 编译产物 zip 由 CI 托管（Release / Artifact），不纳入源码仓库
-HideAllRoot.zip
+# NDK
+.externalNativeBuild/
+.cxx/
